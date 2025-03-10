@@ -253,33 +253,58 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ScreenToClient(hwnd, &pt_client);
         ScalePointToPhysicalPixels(pt_client);
 
-        static float last_y = pt_client.y;           // 提升为静态变量
-        static float accumulated_delta = 0.0f;       // 全局累积量
+        static float last_y = pt_client.y;
+        static float accumulated_delta = 0.0f;
+        static float velocity = 0.0f;        // 新增速度跟踪
+        static ULONGLONG last_time = 0;      // 新增时间跟踪
         const int trigger_zone = rect.right - MulDiv(20, dpi, 96);
 
         if (pt_client.x >= trigger_zone) {
-          const float delta = last_y - pt_client.y;
+          const ULONGLONG current_time = GetTickCount64();
+          const float delta_time = (current_time - last_time) / 1000.0f;
+          last_time = current_time;
+
+          const float delta = (last_y - pt_client.y) * 0.5f; // 降低灵敏度
           accumulated_delta += delta;
           last_y = pt_client.y;
 
-          // 更细腻的触发条件（0.1像素阈值）
+          // GSAP ease-out 曲线近似公式: 1 - (1 - t)^3.5
+          constexpr float SCROLL_SPEED = 18.0f;
           if (fabsf(accumulated_delta) >= 0.1f) {
-            constexpr float SCROLL_SPEED = 4.5f;    // 进一步降低速度系数
-            const int wheel_delta = static_cast<int>(
-                accumulated_delta * SCROLL_SPEED);
+            // 应用缓动曲线
+            float t = std::clamp(fabsf(accumulated_delta) / 40.0f, 0.0f, 1.0f);
+            float curve = 1.0f - std::pow(1.0f - t, 3.5f);
             
-            // 保留余数实现亚像素级累积
-            const float sent_delta = wheel_delta / SCROLL_SPEED;
-            accumulated_delta -= sent_delta;
+            const int wheel_delta = static_cast<int>(
+                std::copysign(curve * SCROLL_SPEED, accumulated_delta));
 
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            
+            // 惯性衰减
+            accumulated_delta *= std::exp(-delta_time * 8.0f);
           }
         } else {
-          // 离开区域时完全重置状态
-          last_y = pt_client.y;     // 同步最后位置
-          accumulated_delta = 0.0f; // 清除累积量
+          // 离开区域时增加惯性延续
+          if (fabsf(accumulated_delta) > 0.1f) {
+            const ULONGLONG current_time = GetTickCount64();
+            const float delta_time = (current_time - last_time) / 1000.0f;
+            last_time = current_time;
+
+            // 持续应用惯性衰减
+            accumulated_delta *= std::exp(-delta_time * 12.0f);
+            
+            const int wheel_delta = static_cast<int>(
+                accumulated_delta * SCROLL_SPEED);
+            
+            PostMessage(hwnd, WM_MOUSEWHEEL, 
+              MAKEWPARAM(0, wheel_delta), 
+              MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          } else {
+            accumulated_delta = 0.0f;
+          }
+          last_y = pt_client.y;
         }
       }
     }
