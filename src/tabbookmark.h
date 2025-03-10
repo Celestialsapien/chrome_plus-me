@@ -231,8 +231,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
     if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
       HWND hwnd = WindowFromPoint(pmouse->pt);
       
       // 仅在右侧20像素区域处理
