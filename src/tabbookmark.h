@@ -263,7 +263,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (pt_client.x >= trigger_zone) {
           const ULONGLONG current_time = GetTickCount64();
-          const float delta_time = std::max(0.001f, 
+          const float delta_time = (std::max)(0.001f, 
             static_cast<float>(current_time - last_time) / 1000.0f);
           last_time = current_time;
 
@@ -294,7 +294,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         } else {
           if (fabsf(accumulated_delta) > 0.1f) {
             const ULONGLONG current_time = GetTickCount64();
-            const float delta_time = std::max(0.001f,
+            const float delta_time = (std::max)(0.001f,
               static_cast<float>(current_time - last_time) / 1000.0f);
             last_time = current_time;
 
