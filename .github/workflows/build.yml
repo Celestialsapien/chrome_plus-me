@@ -28,8 +28,6 @@ jobs:
             arch: x86
           - name: build_x64
             arch: x64
-          - name: build_arm64
-            arch: arm64
 
     name: ${{ matrix.name }}
     runs-on: windows-latest
