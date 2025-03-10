@@ -253,58 +253,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ScreenToClient(hwnd, &pt_client);
         ScalePointToPhysicalPixels(pt_client);
 
-        // 滚动状态跟踪变量
-        static float last_y = pt_client.y;
+        // 完整状态变量声明
+        static float last_y = static_cast<float>(pt_client.y);
         static float accumulated_delta = 0.0f;
-        static float velocity = 0.0f;
         static ULONGLONG last_time = GetTickCount64();
         const int trigger_zone = rect.right - MulDiv(20, dpi, 96);
+        constexpr float SCROLL_SPEED = 18.0f;  // 常量提升至外层作用域
 
-        // 进入右侧触发区域
         if (pt_client.x >= trigger_zone) {
+          // 进入区域完整处理
           const ULONGLONG current_time = GetTickCount64();
-          const float delta_time = (current_time - last_time) / 1000.0f;
+          const float delta_time = static_cast<float>(current_time - last_time) / 1000.0f;
           last_time = current_time;
 
-          // 计算移动增量并应用灵敏度调整
-          const float delta = (last_y - pt_client.y) * 0.5f;
+          const float current_y = static_cast<float>(pt_client.y);
+          const float delta = (last_y - current_y) * 0.5f;
           accumulated_delta += delta;
-          last_y = pt_client.y;
+          last_y = current_y;
 
-          // GSAP缓动曲线处理
-          constexpr float SCROLL_SPEED = 18.0f;
           if (fabsf(accumulated_delta) >= 0.1f) {
-            // 应用三次贝塞尔缓动曲线
             float t = std::clamp(fabsf(accumulated_delta) / 40.0f, 0.0f, 1.0f);
             float curve = 1.0f - std::pow(1.0f - t, 3.5f);
+            const int wheel_delta = static_cast<int>(std::copysign(curve * SCROLL_SPEED, accumulated_delta));
             
-            // 计算最终滚动量
-            const int wheel_delta = static_cast<int>(
-                std::copysign(curve * SCROLL_SPEED, accumulated_delta));
-
-            // 发送滚轮消息
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
             
-            // 惯性衰减处理
             accumulated_delta *= std::exp(-delta_time * 8.0f);
           }
-        }
-        // 离开触发区域
-        else {
-          // 惯性延续处理
+        } else {
+          // 离开区域完整处理
           if (fabsf(accumulated_delta) > 0.1f) {
             const ULONGLONG current_time = GetTickCount64();
-            const float delta_time = (current_time - last_time) / 1000.0f;
+            const float delta_time = static_cast<float>(current_time - last_time) / 1000.0f;
             last_time = current_time;
 
-            // 应用惯性衰减
             accumulated_delta *= std::exp(-delta_time * 12.0f);
-            
-            // 发送剩余滚动量
-            const int wheel_delta = static_cast<int>(
-                accumulated_delta * SCROLL_SPEED);
+            const int wheel_delta = static_cast<int>(accumulated_delta * SCROLL_SPEED);
             
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
@@ -312,8 +298,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           } else {
             accumulated_delta = 0.0f;
           }
-          // 更新最后记录位置
-          last_y = pt_client.y;
+          last_y = static_cast<float>(pt_client.y);
         }
       }
     }
