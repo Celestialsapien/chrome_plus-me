@@ -41,8 +41,6 @@ bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   }
   
   // 计算垂直移动距离（使用相对坐标）
-  static POINT last_pos = {0, 0};
-  static int accum_delta = 0;  // 新增累积增量
   int client_height = client_rect.bottom - client_rect.top;
   int delta = (pmouse->pt.y - last_pos.y) * client_height / GetSystemMetrics(SM_CYSCREEN);
 
