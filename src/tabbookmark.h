@@ -242,34 +242,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
       if (GetClientRect(hwnd, &rect)) {
-        // ... DPI处理代码不变 ...
+        // 处理高DPI缩放
+        const UINT dpi = GetDpiForWindow(hwnd);
+        auto ScalePointToPhysicalPixels = [dpi](POINT& pt) {
+          pt.x = MulDiv(pt.x, dpi, 96);
+          pt.y = MulDiv(pt.y, dpi, 96);
+        };
 
-        if (pt_client.x >= (rect.right - MulDiv(20, dpi, 96))) {
-          static float last_y = pt_client.y;
-          static float accumulated_delta = 0.0f;  // 改用浮点数累积
-            
+        POINT pt_client = pmouse->pt;
+        ScreenToClient(hwnd, &pt_client);
+        ScalePointToPhysicalPixels(pt_client);
+
+        static float last_y = pt_client.y;           // 提升为静态变量
+        static float accumulated_delta = 0.0f;       // 全局累积量
+        const int trigger_zone = rect.right - MulDiv(20, dpi, 96);
+
+        if (pt_client.x >= trigger_zone) {
           const float delta = last_y - pt_client.y;
           accumulated_delta += delta;
           last_y = pt_client.y;
 
-          // 亚像素级滚动触发 (0.2像素阈值)
-          if (fabsf(accumulated_delta) >= 0.2f) {
-            constexpr float SCROLL_SPEED = 6.0f;  // 更精细的速度控制
+          // 更细腻的触发条件（0.1像素阈值）
+          if (fabsf(accumulated_delta) >= 0.1f) {
+            constexpr float SCROLL_SPEED = 4.5f;    // 进一步降低速度系数
             const int wheel_delta = static_cast<int>(
                 accumulated_delta * SCROLL_SPEED);
             
-            // 发送部分累积量，保留余数
+            // 保留余数实现亚像素级累积
+            const float sent_delta = wheel_delta / SCROLL_SPEED;
+            accumulated_delta -= sent_delta;
+
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            
-            accumulated_delta -= wheel_delta / SCROLL_SPEED; // 保留未处理的微小移动
           }
         } else {
-          // 离开区域时重置状态
-          static int last_y = pt_client.y;
-          last_y = pt_client.y;
-          accumulated_delta = 0.0f;  // 新增重置累积量
+          // 离开区域时完全重置状态
+          last_y = pt_client.y;     // 同步最后位置
+          accumulated_delta = 0.0f; // 清除累积量
         }
       }
     }
