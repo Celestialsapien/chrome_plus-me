@@ -6,66 +6,6 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
-// 新增滚动条检测区域宽度
-const int SCROLLBAR_ZONE_WIDTH = 20; // 屏幕右侧20像素内视为滚动条区域
-const int SMOOTH_FACTOR = 8;         // 平滑滚动因子
-// 处理平滑滚动的新函数
-bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
-  // 仅处理鼠标移动事件
-  if (wParam != WM_MOUSEMOVE) {
-    return false;
-  }
-  // 静态变量必须在函数顶部声明
-  static POINT last_pos = {0, 0};
-  static int accum_delta = 0;
-
-  // 1. 获取窗口句柄
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-
-  // 修正坐标转换：将屏幕坐标转换为窗口客户区坐标
-  POINT client_pt = pmouse->pt;
-  ScreenToClient(hwnd, &client_pt);  // 新增坐标转换
-
-  // 获取窗口客户区实际尺寸（替代原来的屏幕尺寸判断）
-  RECT client_rect;
-  GetClientRect(hwnd, &client_rect);
-
-  // 修正滚动区域判断：使用窗口实际宽度
-  int client_width = client_rect.right - client_rect.left;
-  if (client_pt.x < client_width - SCROLLBAR_ZONE_WIDTH) {
-    last_pos.x = 0;  // 使用成员赋值替代初始化列表
-    last_pos.y = 0;
-    accum_delta = 0;
-    return false;
-  }
-  
-  // 计算垂直移动距离（使用相对坐标）
-  int client_height = client_rect.bottom - client_rect.top;
-  int delta = (pmouse->pt.y - last_pos.y) * client_height / GetSystemMetrics(SM_CYSCREEN);
-
-  last_pos = pmouse->pt;
-
-  // 生成平滑滚动事件（使用magic code避免循环触发）
-  if (delta != 0) {
-    // 调整滚动方向和系数
-    accum_delta += delta;  // 累积增量
-    int smooth_delta = (-accum_delta) * WHEEL_DELTA / SMOOTH_FACTOR;  // 反转方向
-    accum_delta -= smooth_delta * SMOOTH_FACTOR / WHEEL_DELTA;  // 保留余数
-
-    // 构造滚轮消息（优化为单次事件）
-    INPUT input = {0};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-    input.mi.mouseData = smooth_delta;
-    input.mi.dwExtraInfo = MAGIC_CODE;
-    
-    // 发送输入事件
-    SendInput(1, &input, sizeof(INPUT));
-  }
-
-  return true;
-}
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -291,19 +231,59 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      if (HandleSmoothScroll(wParam, pmouse)) {
-        return 1; // 拦截原始鼠标移动事件
-      }
+    if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
-    //PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
+    // 新增边缘滚动处理
+    if (wParam == WM_MOUSEMOVE) {
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      hwnd = GetTopWnd(hwnd);
+      RECT rect{};
+      if (GetClientRect(hwnd, &rect)) {
+        POINT pt_client = pmouse->pt;
+        ScreenToClient(hwnd, &pt_client);
+        
+        // 检测右侧20像素区域
+        if (pt_client.x >= (rect.right - 20)) {
+          static int last_y = pt_client.y;
+          const int delta = last_y - pt_client.y;  // 计算垂直移动量
+          last_y = pt_client.y;
+
+          // 生成平滑滚动事件
+          if (delta != 0) {
+            constexpr int SCROLL_SPEED = 40;  // 滚动速度系数
+            const int wheel_delta = delta * SCROLL_SPEED;
+            
+            // 发送滚轮消息实现平滑滚动
+            PostMessage(hwnd, WM_MOUSEWHEEL, 
+              MAKEWPARAM(0, wheel_delta), 
+              MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          }
+        }
+      }
+    }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
       break;
+    }
+
+    if (wParam == WM_LBUTTONUP){
+    HWND hwnd = WindowFromPoint(pmouse->pt);
+    NodePtr TopContainerView = GetTopContainerView(hwnd);
+
+    bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
+
+    if (TopContainerView){
+     }
+
+    // 单击地址栏展开下拉菜单
+    if (isOmniboxFocus){
+      keybd_event(VK_PRIOR,0,0,0);
+     }
     }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
@@ -390,6 +370,13 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     if (HandleOpenUrlNewTab(wParam) != 0) {
+      return 1;
+    }
+    
+    if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
+      return 1;
+    }
+    if (wParam == VK_NEXT && IsPressed(VK_CONTROL)){
       return 1;
     }
   }
