@@ -2,18 +2,59 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <chrono>  // 新增
-#include <cmath>   // 新增
 
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
-static bool is_scrolling = false;
-static POINT scroll_start_point;
-static constexpr float SCROLL_SENSITIVITY = 1.0f;
-static constexpr float SMOOTH_FACTOR = 8.0f;
+// 新增滚动条检测区域宽度
+const int SCROLLBAR_ZONE_WIDTH = 20; // 屏幕右侧20像素内视为滚动条区域
+const int SMOOTH_FACTOR = 8;         // 平滑滚动因子
+// 处理平滑滚动的新函数
+bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
+  // 仅处理鼠标移动事件
+  if (wParam != WM_MOUSEMOVE) {
+    return false;
+  }
 
+  // 获取屏幕尺寸
+  int screen_width = GetSystemMetrics(SM_CXSCREEN);
+  
+  // 判断是否在滚动条区域
+  if (pmouse->pt.x < screen_width - SCROLLBAR_ZONE_WIDTH) {
+    return false;
+  }
+
+  // 获取当前窗口句柄
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  
+  // 获取窗口客户区尺寸
+  RECT client_rect;
+  GetClientRect(hwnd, &client_rect);
+  
+  // 计算垂直移动距离（使用相对坐标）
+  static POINT last_pos = {0, 0};
+  int delta = pmouse->pt.y - last_pos.y;
+  last_pos = pmouse->pt;
+
+  // 生成平滑滚动事件（使用magic code避免循环触发）
+  if (delta != 0) {
+    // 使用SMOOTH_FACTOR实现平滑效果
+    int smooth_delta = delta * WHEEL_DELTA / SMOOTH_FACTOR;
+    
+    // 构造滚轮消息
+    INPUT input[2] = {0};
+    input[0].type = input[1].type = INPUT_MOUSE;
+    input[0].mi.dwFlags = MOUSEEVENTF_WHEEL;
+    input[0].mi.mouseData = smooth_delta;
+    input[0].mi.dwExtraInfo = MAGIC_CODE;
+    
+    // 发送输入事件
+    SendInput(2, input, sizeof(INPUT));
+  }
+
+  return true;
+}
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -59,36 +100,6 @@ NodePtr HandleFindBar(HWND hwnd, POINT pt) {
   }
   return top_container_view;
 }
-
-class SmoothScroller {
-  public:
-      void Update(float delta) {
-          target_ += delta;
-          last_update_ = std::chrono::steady_clock::now();
-      }
-  
-      float GetCurrent() {
-          using namespace std::chrono;
-          auto now = steady_clock::now();
-          float dt = duration_cast<milliseconds>(now - last_update_).count() / 1000.0f;
-          
-          current_ = current_ + (target_ - current_) * (1 - exp(-dt * SMOOTH_FACTOR));
-          return current_ - last_value_;
-      }
-  
-      void Reset() { 
-          current_ = target_ = last_value_ = 0; 
-          last_update_ = std::chrono::steady_clock::now();
-      }
-  
-  private:
-      float current_ = 0;
-      float target_ = 0;
-      float last_value_ = 0;
-      std::chrono::steady_clock::time_point last_update_;
-  };
-  
-  static SmoothScroller smooth_scroller;  // 全局滚动控制器
 
 class IniConfig {
  public:
@@ -263,68 +274,20 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
-bool IsOnVerticalScrollbar(HWND hwnd, POINT pt) {
-  NodePtr root = GetChromeWidgetWin(hwnd);
-  if (!root) return false;
-
-  NodePtr scrollbar = nullptr;
-  TraversalAccessible(root, [&](NodePtr node) {
-      if (GetAccessibleRole(node) == ROLE_SYSTEM_SCROLLBAR) {
-          RECT rect;
-          GetAccessibleSize(node, [&rect](RECT r) { rect = r; });
-          if (PtInRect(&rect, pt) && 
-              (rect.right - rect.left) < (rect.bottom - rect.top)) {
-              scrollbar = node;
-              return true;
-          }
-      }
-      return false;
-  }, true);
-  return scrollbar != nullptr;
-}
-
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
   do {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
     if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      if (HandleSmoothScroll(wParam, pmouse)) {
+        return 1; // 拦截原始鼠标移动事件
+      }
       break;
     }
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-
-    // 新增滚动处理逻辑
-    if (wParam == WM_MOUSEMOVE) {
-      if (is_scrolling) {
-          // 处理滚动中
-          float delta = (pmouse->pt.y - scroll_start_point.y) * SCROLL_SENSITIVITY;
-          smooth_scroller.Update(-delta);
-          scroll_start_point = pmouse->pt;
-
-          if (float scroll_value = smooth_scroller.GetCurrent(); fabs(scroll_value) > 0.1f) {
-              SendMessage(GetTopWnd(pmouse->hwnd), WM_MOUSEWHEEL, 
-                         MAKEWPARAM(0, scroll_value * WHEEL_DELTA), 
-                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
-          return 1;
-      }
-      else if (IsOnVerticalScrollbar(pmouse->hwnd, pmouse->pt)) {
-          // 开始滚动捕获
-          is_scrolling = true;
-          scroll_start_point = pmouse->pt;
-          smooth_scroller.Reset();
-          SetCapture(pmouse->hwnd);
-          return 1;
-      }
-  }
-
-  // 结束滚动
-  if ((wParam == WM_LBUTTONUP || wParam == WM_MOUSELEAVE) && is_scrolling) {
-      is_scrolling = false;
-      ReleaseCapture();
-      return 1;
-  }
+    //PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
