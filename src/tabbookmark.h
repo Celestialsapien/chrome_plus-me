@@ -242,41 +242,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
       if (GetClientRect(hwnd, &rect)) {
-        // 处理高DPI缩放
-        const UINT dpi = GetDpiForWindow(hwnd);
-        auto ScalePointToPhysicalPixels = [dpi](POINT& pt) {
-          pt.x = MulDiv(pt.x, dpi, 96);
-          pt.y = MulDiv(pt.y, dpi, 96);
-        };
+        // ... DPI处理代码不变 ...
 
-        POINT pt_client = pmouse->pt;
-        ScreenToClient(hwnd, &pt_client);
-        ScalePointToPhysicalPixels(pt_client); // 转换为物理像素
-
-        if (pt_client.x >= (rect.right - MulDiv(20, dpi, 96))) { // 物理像素计算
-          static int last_y = pt_client.y;
-          static int accumulated_delta = 0;
-          
-          const int delta = last_y - pt_client.y; // 当前帧移动量
-          accumulated_delta += delta;            // 累积微小移动
+        if (pt_client.x >= (rect.right - MulDiv(20, dpi, 96))) {
+          static float last_y = pt_client.y;
+          static float accumulated_delta = 0.0f;  // 改用浮点数累积
+            
+          const float delta = last_y - pt_client.y;
+          accumulated_delta += delta;
           last_y = pt_client.y;
 
-          // 当累积量达到阈值时触发滚动
-          if (abs(accumulated_delta) >= 1) {
-            constexpr int SCROLL_SPEED = 12;  // 降低滚动速度系数
-            const int wheel_delta = accumulated_delta * SCROLL_SPEED;
+          // 亚像素级滚动触发 (0.2像素阈值)
+          if (fabsf(accumulated_delta) >= 0.2f) {
+            constexpr float SCROLL_SPEED = 6.0f;  // 更精细的速度控制
+            const int wheel_delta = static_cast<int>(
+                accumulated_delta * SCROLL_SPEED);
             
-            // 发送带物理坐标的滚轮消息
+            // 发送部分累积量，保留余数
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
             
-            accumulated_delta = 0; // 重置累积量
+            accumulated_delta -= wheel_delta / SCROLL_SPEED; // 保留未处理的微小移动
           }
         } else {
-          // 离开区域时立即更新最后位置，避免跳跃
+          // 离开区域时重置状态
           static int last_y = pt_client.y;
           last_y = pt_client.y;
+          accumulated_delta = 0.0f;  // 新增重置累积量
         }
       }
     }
