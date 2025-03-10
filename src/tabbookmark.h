@@ -232,34 +232,43 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      
-      // 仅在右侧20像素区域处理
-      RECT window_rect;
-      GetWindowRect(hwnd, &window_rect);
-      const int edge_margin = 20;
-      const bool in_right_edge = (pmouse->pt.x >= (window_rect.right - edge_margin)) && 
-                                (pmouse->pt.x <= window_rect.right);
+    // 新增边缘滚动检测
+    if (wParam == WM_MOUSEMOVE) {
+      HWND hWnd = WindowFromPoint(pmouse->pt);
+      if (hWnd) {
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        POINT ptClient = pmouse->pt;
+        ScreenToClient(hWnd, &ptClient);
 
-      if (in_right_edge && !IsPressed(VK_LBUTTON)) {
-        static POINT last_pt = {0, 0};
-        const int dy = pmouse->pt.y - last_pt.y;
-        
-        // 计算平滑滚动的增量
-        if (dy != 0) {
-          const int delta = dy * WHEEL_DELTA;  // 使用系统定义的滚动单位
-          HWND target = GetParent(hwnd);       // 获取浏览器主窗口
+        // 检测右侧20像素区域
+        const int scrollZoneWidth = 20;
+        if (ptClient.x >= (rc.right - scrollZoneWidth)) {
+          static POINT lastPt{};
+          int deltaY = lastPt.y - ptClient.y; // 计算垂直移动量
           
-          // 发送滚轮消息到窗口
-          PostMessage(target, WM_MOUSEWHEEL, 
-                     MAKEWPARAM(0, delta), 
-                     MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 生成平滑滚动事件
+          if (deltaY != 0) {
+            INPUT inputs[2]{};
+            inputs[0].type = INPUT_MOUSE;
+            inputs[0].mi.dwFlags = MOUSEEVENTF_WHEEL;
+            inputs[0].mi.mouseData = static_cast<DWORD>(-deltaY * WHEEL_DELTA);
+            
+            inputs[1].type = INPUT_MOUSE;
+            inputs[1].mi.dwFlags = MOUSEEVENTF_WHEEL;
+            inputs[1].mi.mouseData = static_cast<DWORD>(-deltaY * WHEEL_DELTA);
+            
+            SendInput(2, inputs, sizeof(INPUT));
+          }
+          lastPt = ptClient;
+          return 1; // 拦截鼠标移动
         }
-        last_pt = pmouse->pt;
       }
+    }
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
+    
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
