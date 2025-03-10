@@ -238,6 +238,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     // 新增边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
+      if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
+        break; // 当左键按下时跳过边缘滚动处理
+      }
       HWND hwnd = WindowFromPoint(pmouse->pt);
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
@@ -261,16 +264,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         constexpr float SCROLL_SPEED = 18.0f;  // 常量提升至外层作用域
 
         if (pt_client.x >= trigger_zone) {
-          // 进入区域完整处理
           const ULONGLONG current_time = GetTickCount64();
           const float delta_time = static_cast<float>(current_time - last_time) / 1000.0f;
           last_time = current_time;
-
+    
           const float current_y = static_cast<float>(pt_client.y);
           const float delta = (last_y - current_y) * 0.5f;
           accumulated_delta += delta;
           last_y = current_y;
-
+    
           if (fabsf(accumulated_delta) >= 0.1f) {
             float t = std::clamp(fabsf(accumulated_delta) / 40.0f, 0.0f, 1.0f);
             float curve = 1.0f - std::pow(1.0f - t, 3.5f);
@@ -280,24 +282,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
             
-            accumulated_delta *= std::exp(-delta_time * 8.0f);
+            // 取消惯性衰减，直接重置累积量
+            accumulated_delta = 0.0f; 
           }
         } else {
-          // 离开区域完整处理
-          if (fabsf(accumulated_delta) > 0.1f) {
-            const ULONGLONG current_time = GetTickCount64();
-            const float delta_time = static_cast<float>(current_time - last_time) / 1000.0f;
-            last_time = current_time;
-
-            accumulated_delta *= std::exp(-delta_time * 12.0f);
-            const int wheel_delta = static_cast<int>(accumulated_delta * SCROLL_SPEED);
-            
-            PostMessage(hwnd, WM_MOUSEWHEEL, 
-              MAKEWPARAM(0, wheel_delta), 
-              MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          } else {
-            accumulated_delta = 0.0f;
-          }
+          // 离开区域时立即重置状态
+          accumulated_delta = 0.0f;
           last_y = static_cast<float>(pt_client.y);
         }
       }
