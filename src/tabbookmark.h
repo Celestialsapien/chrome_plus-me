@@ -231,57 +231,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    if (wParam == WM_NCMOUSEMOVE) {
-      break;
-    }
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-
-    // 修改后的边缘滚动处理
-    if (wParam == WM_MOUSEMOVE) {
-      // 强化左键状态检查（包括按下和释放状态）
-      if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (wParam == WM_LBUTTONUP)) {
-        break;
-      }
-      static bool is_in_zone = false;
-      static float accumulated_delta = 0.0f;
-      static int last_y = 0;
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
       HWND hwnd = WindowFromPoint(pmouse->pt);
-      hwnd = GetTopWnd(hwnd);
-      RECT rect{};
-      if (GetClientRect(hwnd, &rect)) {
-        POINT pt_client = pmouse->pt;
-        ScreenToClient(hwnd, &pt_client);
-        const bool current_in_zone = pt_client.x >= (rect.right - 20);
+      
+      // 仅在右侧20像素区域处理
+      RECT window_rect;
+      GetWindowRect(hwnd, &window_rect);
+      const int edge_margin = 20;
+      const bool in_right_edge = (pmouse->pt.x >= (window_rect.right - edge_margin)) && 
+                                (pmouse->pt.x <= window_rect.right);
 
-        if (current_in_zone) {
-          // 初始化时保存当前坐标
-          if (!is_in_zone) {
-            last_y = pt_client.y;
-            accumulated_delta = 0.0f;  // 新增初始化累积量
-          }
+      if (in_right_edge && !IsPressed(VK_LBUTTON)) {
+        static POINT last_pt = {0, 0};
+        const int dy = pmouse->pt.y - last_pt.y;
+        
+        // 计算平滑滚动的增量
+        if (dy != 0) {
+          const int delta = dy * WHEEL_DELTA;  // 使用系统定义的滚动单位
+          HWND target = GetParent(hwnd);       // 获取浏览器主窗口
           
-          // 更精细的滚动比例（1:0.5）
-          float delta = (last_y - pt_client.y) * 0.5f;
-          accumulated_delta += delta;
-          last_y = pt_client.y;
-
-          // 降低触发阈值到0.2
-          if (fabs(accumulated_delta) >= 0.2f) {
-            const int wheel_delta = static_cast<int>(accumulated_delta * 20);  // 系数从40降为20
-            accumulated_delta -= wheel_delta / 20.0f;
-            
-            PostMessage(hwnd, WM_MOUSEWHEEL, 
-              MAKEWPARAM(0, wheel_delta * 120),
-              MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
-          is_in_zone = true;
-        } else if (is_in_zone) {
-          // 离开时保存最终坐标
-          last_y = pt_client.y;
-          accumulated_delta = 0.0f;
-          is_in_zone = false;
+          // 发送滚轮消息到窗口
+          PostMessage(target, WM_MOUSEWHEEL, 
+                     MAKEWPARAM(0, delta), 
+                     MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
+        last_pt = pmouse->pt;
       }
+      break;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
