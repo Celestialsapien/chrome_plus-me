@@ -16,6 +16,9 @@ bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_MOUSEMOVE) {
     return false;
   }
+  // 静态变量必须在函数顶部声明
+  static POINT last_pos = {0, 0};
+  static int accum_delta = 0;
 
   // 1. 获取窗口句柄
   HWND hwnd = WindowFromPoint(pmouse->pt);
@@ -27,12 +30,13 @@ bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   // 获取窗口客户区实际尺寸（替代原来的屏幕尺寸判断）
   RECT client_rect;
   GetClientRect(hwnd, &client_rect);
-  
+
   // 修正滚动区域判断：使用窗口实际宽度
   int client_width = client_rect.right - client_rect.left;
   if (client_pt.x < client_width - SCROLLBAR_ZONE_WIDTH) {
-    last_pos = {0, 0};  // 重置位置
-    accum_delta = 0;    // 重置累积量
+    last_pos.x = 0;  // 使用成员赋值替代初始化列表
+    last_pos.y = 0;
+    accum_delta = 0;
     return false;
   }
   
