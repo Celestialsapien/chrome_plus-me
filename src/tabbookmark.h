@@ -34,23 +34,26 @@ bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   
   // 计算垂直移动距离（使用相对坐标）
   static POINT last_pos = {0, 0};
+  static int accum_delta = 0;  // 新增累积增量
   int delta = pmouse->pt.y - last_pos.y;
   last_pos = pmouse->pt;
 
   // 生成平滑滚动事件（使用magic code避免循环触发）
   if (delta != 0) {
-    // 使用SMOOTH_FACTOR实现平滑效果
-    int smooth_delta = delta * WHEEL_DELTA / SMOOTH_FACTOR;
-    
-    // 构造滚轮消息
-    INPUT input[2] = {0};
-    input[0].type = input[1].type = INPUT_MOUSE;
-    input[0].mi.dwFlags = MOUSEEVENTF_WHEEL;
-    input[0].mi.mouseData = smooth_delta;
-    input[0].mi.dwExtraInfo = MAGIC_CODE;
+    // 调整滚动方向和系数
+    accum_delta += delta;  // 累积增量
+    int smooth_delta = (-accum_delta) * WHEEL_DELTA / SMOOTH_FACTOR;  // 反转方向
+    accum_delta -= smooth_delta * SMOOTH_FACTOR / WHEEL_DELTA;  // 保留余数
+
+    // 构造滚轮消息（优化为单次事件）
+    INPUT input = {0};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+    input.mi.mouseData = smooth_delta;
+    input.mi.dwExtraInfo = MAGIC_CODE;
     
     // 发送输入事件
-    SendInput(2, input, sizeof(INPUT));
+    SendInput(1, &input, sizeof(INPUT));
   }
 
   return true;
