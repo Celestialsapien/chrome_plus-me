@@ -2,10 +2,18 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <chrono>  // 新增
+#include <cmath>   // 新增
 
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+
+static bool is_scrolling = false;
+static POINT scroll_start_point;
+static constexpr float SCROLL_SENSITIVITY = 1.0f;
+static constexpr float SMOOTH_FACTOR = 8.0f;
+
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -51,6 +59,36 @@ NodePtr HandleFindBar(HWND hwnd, POINT pt) {
   }
   return top_container_view;
 }
+
+class SmoothScroller {
+  public:
+      void Update(float delta) {
+          target_ += delta;
+          last_update_ = std::chrono::steady_clock::now();
+      }
+  
+      float GetCurrent() {
+          using namespace std::chrono;
+          auto now = steady_clock::now();
+          float dt = duration_cast<milliseconds>(now - last_update_).count() / 1000.0f;
+          
+          current_ = current_ + (target_ - current_) * (1 - exp(-dt * SMOOTH_FACTOR));
+          return current_ - last_value_;
+      }
+  
+      void Reset() { 
+          current_ = target_ = last_value_ = 0; 
+          last_update_ = std::chrono::steady_clock::now();
+      }
+  
+  private:
+      float current_ = 0;
+      float target_ = 0;
+      float last_value_ = 0;
+      std::chrono::steady_clock::time_point last_update_;
+  };
+  
+  static SmoothScroller smooth_scroller;  // 全局滚动控制器
 
 class IniConfig {
  public:
@@ -225,6 +263,26 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+bool IsOnVerticalScrollbar(HWND hwnd, POINT pt) {
+  NodePtr root = GetChromeWidgetWin(hwnd);
+  if (!root) return false;
+
+  NodePtr scrollbar = nullptr;
+  TraversalAccessible(root, [&](NodePtr node) {
+      if (GetAccessibleRole(node) == ROLE_SYSTEM_SCROLLBAR) {
+          RECT rect;
+          GetAccessibleSize(node, [&rect](RECT r) { rect = r; });
+          if (PtInRect(&rect, pt) && 
+              (rect.right - rect.left) < (rect.bottom - rect.top)) {
+              scrollbar = node;
+              return true;
+          }
+      }
+      return false;
+  }, true);
+  return scrollbar != nullptr;
+}
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -235,6 +293,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       break;
     }
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
+    // 新增滚动处理逻辑
+    if (wParam == WM_MOUSEMOVE) {
+      if (is_scrolling) {
+          // 处理滚动中
+          float delta = (pmouse->pt.y - scroll_start_point.y) * SCROLL_SENSITIVITY;
+          smooth_scroller.Update(-delta);
+          scroll_start_point = pmouse->pt;
+
+          if (float scroll_value = smooth_scroller.GetCurrent(); fabs(scroll_value) > 0.1f) {
+              SendMessage(GetTopWnd(pmouse->hwnd), WM_MOUSEWHEEL, 
+                         MAKEWPARAM(0, scroll_value * WHEEL_DELTA), 
+                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          }
+          return 1;
+      }
+      else if (IsOnVerticalScrollbar(pmouse->hwnd, pmouse->pt)) {
+          // 开始滚动捕获
+          is_scrolling = true;
+          scroll_start_point = pmouse->pt;
+          smooth_scroller.Reset();
+          SetCapture(pmouse->hwnd);
+          return 1;
+      }
+  }
+
+  // 结束滚动
+  if ((wParam == WM_LBUTTONUP || wParam == WM_MOUSELEAVE) && is_scrolling) {
+      is_scrolling = false;
+      ReleaseCapture();
+      return 1;
+  }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
