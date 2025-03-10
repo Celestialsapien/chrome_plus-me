@@ -243,25 +243,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         // 检测右侧20像素区域
         const int scrollZoneWidth = 20;
-        if (ptClient.x >= (rc.right - scrollZoneWidth)) {
-          static POINT lastPt{};
-          int deltaY = lastPt.y - ptClient.y; // 计算垂直移动量
+        bool inScrollZone = ptClient.x >= (rc.right - scrollZoneWidth);
+        
+        static bool wasInScrollZone = false;
+        static POINT lastPt{};
+
+        if (inScrollZone) {
+          // 初始化或重置上次坐标
+          if (!wasInScrollZone) {
+            lastPt = ptClient;
+            wasInScrollZone = true;
+          }
+
+          // 计算垂直移动量（调整方向）
+          int deltaY = ptClient.y - lastPt.y;
           
-          // 生成平滑滚动事件
+          // 生成平滑滚动事件（降低滚动速度）
           if (deltaY != 0) {
-            INPUT inputs[2]{};
-            inputs[0].type = INPUT_MOUSE;
-            inputs[0].mi.dwFlags = MOUSEEVENTF_WHEEL;
-            inputs[0].mi.mouseData = static_cast<DWORD>(-deltaY * WHEEL_DELTA);
+            // 使用更小的乘数系数（原WHEEL_DELTA=120，这里使用40）
+            const int SCROLL_FACTOR = 40;
+            INPUT input{};
+            input.type = INPUT_MOUSE;
+            input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+            input.mi.mouseData = static_cast<DWORD>(deltaY * SCROLL_FACTOR);
             
-            inputs[1].type = INPUT_MOUSE;
-            inputs[1].mi.dwFlags = MOUSEEVENTF_WHEEL;
-            inputs[1].mi.mouseData = static_cast<DWORD>(-deltaY * WHEEL_DELTA);
-            
-            SendInput(2, inputs, sizeof(INPUT));
+            // 发送到目标窗口
+            SetForegroundWindow(hWnd);
+            SendInput(1, &input, sizeof(INPUT));
           }
           lastPt = ptClient;
           return 1; // 拦截鼠标移动
+        } else {
+          wasInScrollZone = false; // 离开区域时重置状态
         }
       }
     }
