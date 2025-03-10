@@ -242,25 +242,41 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
       if (GetClientRect(hwnd, &rect)) {
+        // 处理高DPI缩放
+        const UINT dpi = GetDpiForWindow(hwnd);
+        auto ScalePointToPhysicalPixels = [dpi](POINT& pt) {
+          pt.x = MulDiv(pt.x, dpi, 96);
+          pt.y = MulDiv(pt.y, dpi, 96);
+        };
+
         POINT pt_client = pmouse->pt;
         ScreenToClient(hwnd, &pt_client);
-        
-        // 检测右侧20像素区域
-        if (pt_client.x >= (rect.right - 20)) {
+        ScalePointToPhysicalPixels(pt_client); // 转换为物理像素
+
+        if (pt_client.x >= (rect.right - MulDiv(20, dpi, 96))) { // 物理像素计算
           static int last_y = pt_client.y;
-          const int delta = last_y - pt_client.y;  // 计算垂直移动量
+          static int accumulated_delta = 0;
+          
+          const int delta = last_y - pt_client.y; // 当前帧移动量
+          accumulated_delta += delta;            // 累积微小移动
           last_y = pt_client.y;
 
-          // 生成平滑滚动事件
-          if (delta != 0) {
-            constexpr int SCROLL_SPEED = 40;  // 滚动速度系数
-            const int wheel_delta = delta * SCROLL_SPEED;
+          // 当累积量达到阈值时触发滚动
+          if (abs(accumulated_delta) >= 1) {
+            constexpr int SCROLL_SPEED = 12;  // 降低滚动速度系数
+            const int wheel_delta = accumulated_delta * SCROLL_SPEED;
             
-            // 发送滚轮消息实现平滑滚动
+            // 发送带物理坐标的滚轮消息
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            
+            accumulated_delta = 0; // 重置累积量
           }
+        } else {
+          // 离开区域时立即更新最后位置，避免跳跃
+          static int last_y = pt_client.y;
+          last_y = pt_client.y;
         }
       }
     }
