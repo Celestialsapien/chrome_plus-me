@@ -17,25 +17,31 @@ bool HandleSmoothScroll(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
     return false;
   }
 
-  // 获取屏幕尺寸
-  int screen_width = GetSystemMetrics(SM_CXSCREEN);
-  
-  // 判断是否在滚动条区域
-  if (pmouse->pt.x < screen_width - SCROLLBAR_ZONE_WIDTH) {
-    return false;
-  }
-
-  // 获取当前窗口句柄
+  // 1. 获取窗口句柄
   HWND hwnd = WindowFromPoint(pmouse->pt);
-  
-  // 获取窗口客户区尺寸
+
+  // 修正坐标转换：将屏幕坐标转换为窗口客户区坐标
+  POINT client_pt = pmouse->pt;
+  ScreenToClient(hwnd, &client_pt);  // 新增坐标转换
+
+  // 获取窗口客户区实际尺寸（替代原来的屏幕尺寸判断）
   RECT client_rect;
   GetClientRect(hwnd, &client_rect);
+  
+  // 修正滚动区域判断：使用窗口实际宽度
+  int client_width = client_rect.right - client_rect.left;
+  if (client_pt.x < client_width - SCROLLBAR_ZONE_WIDTH) {
+    last_pos = {0, 0};  // 重置位置
+    accum_delta = 0;    // 重置累积量
+    return false;
+  }
   
   // 计算垂直移动距离（使用相对坐标）
   static POINT last_pos = {0, 0};
   static int accum_delta = 0;  // 新增累积增量
-  int delta = pmouse->pt.y - last_pos.y;
+  int client_height = client_rect.bottom - client_rect.top;
+  int delta = (pmouse->pt.y - last_pos.y) * client_height / GetSystemMetrics(SM_CYSCREEN);
+
   last_pos = pmouse->pt;
 
   // 生成平滑滚动事件（使用magic code避免循环触发）
