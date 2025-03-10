@@ -239,13 +239,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
       if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
-        break; // 当左键按下时跳过边缘滚动处理
+        break;
       }
       HWND hwnd = WindowFromPoint(pmouse->pt);
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
       if (GetClientRect(hwnd, &rect)) {
-        // 处理高DPI缩放
         const UINT dpi = GetDpiForWindow(hwnd);
         auto ScalePointToPhysicalPixels = [dpi](POINT& pt) {
           pt.x = MulDiv(pt.x, dpi, 96);
@@ -256,38 +255,62 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ScreenToClient(hwnd, &pt_client);
         ScalePointToPhysicalPixels(pt_client);
 
-        // 完整状态变量声明
         static float last_y = static_cast<float>(pt_client.y);
         static float accumulated_delta = 0.0f;
         static ULONGLONG last_time = GetTickCount64();
         const int trigger_zone = rect.right - MulDiv(20, dpi, 96);
-        constexpr float SCROLL_SPEED = 18.0f;  // 常量提升至外层作用域
+        constexpr float SCROLL_SPEED = 12.0f;  // 调整后的基础速度
 
         if (pt_client.x >= trigger_zone) {
           const ULONGLONG current_time = GetTickCount64();
-          const float delta_time = static_cast<float>(current_time - last_time) / 1000.0f;
+          const float delta_time = std::max(0.001f, 
+            static_cast<float>(current_time - last_time) / 1000.0f);
           last_time = current_time;
-    
+
           const float current_y = static_cast<float>(pt_client.y);
-          const float delta = (last_y - current_y) * 0.5f;
+          const float delta = (last_y - current_y) * 0.3f;  // 降低灵敏度系数
           accumulated_delta += delta;
           last_y = current_y;
-    
-          if (fabsf(accumulated_delta) >= 0.1f) {
-            float t = std::clamp(fabsf(accumulated_delta) / 40.0f, 0.0f, 1.0f);
-            float curve = 1.0f - std::pow(1.0f - t, 3.5f);
-            const int wheel_delta = static_cast<int>(std::copysign(curve * SCROLL_SPEED, accumulated_delta));
+
+          if (fabsf(accumulated_delta) >= 0.05f) {  // 更低的触发阈值
+            float t = std::clamp(fabsf(accumulated_delta) / 25.0f, 0.0f, 1.0f);
+            float curve = t * t * (3.0f - 2.0f * t);  // 平滑的三次贝塞尔近似
+            
+            // 动态速度计算
+            const float dynamic_speed = SCROLL_SPEED * (1.0f + delta_time * 5.0f);
+            const int wheel_delta = static_cast<int>(
+                std::copysign(curve * dynamic_speed, accumulated_delta));
+            
+            // 滚动量限制
+            const int clamped_delta = std::clamp(wheel_delta, -80, 80);
+            
+            PostMessage(hwnd, WM_MOUSEWHEEL, 
+              MAKEWPARAM(0, clamped_delta), 
+              MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            
+            // 更平缓的衰减
+            accumulated_delta *= std::exp(-delta_time * 3.8f);
+          }
+        } else {
+          if (fabsf(accumulated_delta) > 0.1f) {
+            const ULONGLONG current_time = GetTickCount64();
+            const float delta_time = std::max(0.001f,
+              static_cast<float>(current_time - last_time) / 1000.0f);
+            last_time = current_time;
+
+            // 渐进式衰减
+            const float decay_factor = std::exp(-delta_time * 5.5f);
+            accumulated_delta *= decay_factor;
+            
+            const int wheel_delta = static_cast<int>(
+                accumulated_delta * SCROLL_SPEED * 0.25f);  // 离开时速度减为25%
             
             PostMessage(hwnd, WM_MOUSEWHEEL, 
               MAKEWPARAM(0, wheel_delta), 
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            
-            // 取消惯性衰减，直接重置累积量
-            accumulated_delta = 0.0f; 
+          } else {
+            accumulated_delta = 0.0f;
           }
-        } else {
-          // 离开区域时立即重置状态
-          accumulated_delta = 0.0f;
           last_y = static_cast<float>(pt_client.y);
         }
       }
