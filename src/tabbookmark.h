@@ -242,7 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         break;
       }
       static bool is_in_zone = false;
-      static float accumulated_delta = 0.0f;  // 累积微小移动量
+      static float accumulated_delta = 0.0f;
+      static int last_y = 0;  // 将last_y移出条件判断
       HWND hwnd = WindowFromPoint(pmouse->pt);
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
@@ -252,22 +253,28 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         const bool current_in_zone = pt_client.x >= (rect.right - 20);
 
         if (current_in_zone) {
-          static int last_y = pt_client.y;
-          // 累积浮点delta提升精度
-          accumulated_delta += (last_y - pt_client.y) * 0.8f;  // 调整滚动系数
+          // 首次进入区域时初始化last_y
+          if (!is_in_zone) {
+            last_y = pt_client.y;
+          }
+          
+          // 精确1:1滚动比例（原0.8系数已移除）
+          accumulated_delta += (last_y - pt_client.y);
           last_y = pt_client.y;
 
-          // 当累积量达到阈值时触发滚动
           if (fabs(accumulated_delta) >= 1.0f) {
             const int wheel_delta = static_cast<int>(accumulated_delta);
             accumulated_delta -= wheel_delta;
             
+            // 降低滚动速度（120 → 40）
             PostMessage(hwnd, WM_MOUSEWHEEL, 
-              MAKEWPARAM(0, wheel_delta * 120),  // 使用标准WHEEL_DELTA
+              MAKEWPARAM(0, wheel_delta * 40),
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           }
           is_in_zone = true;
-        } else if (is_in_zone) {  // 刚离开触发区时重置
+        } else if (is_in_zone) {
+          // 离开时强制更新last_y防止跳跃
+          last_y = pt_client.y;
           accumulated_delta = 0.0f;
           is_in_zone = false;
         }
