@@ -238,12 +238,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     // 修改后的边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
-      if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {
+      // 强化左键状态检查（包括按下和释放状态）
+      if ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) || (wParam == WM_LBUTTONUP)) {
         break;
       }
       static bool is_in_zone = false;
       static float accumulated_delta = 0.0f;
-      static int last_y = 0;  // 将last_y移出条件判断
+      static int last_y = 0;
       HWND hwnd = WindowFromPoint(pmouse->pt);
       hwnd = GetTopWnd(hwnd);
       RECT rect{};
@@ -253,27 +254,29 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         const bool current_in_zone = pt_client.x >= (rect.right - 20);
 
         if (current_in_zone) {
-          // 首次进入区域时初始化last_y
+          // 初始化时保存当前坐标
           if (!is_in_zone) {
             last_y = pt_client.y;
+            accumulated_delta = 0.0f;  // 新增初始化累积量
           }
           
-          // 精确1:1滚动比例（原0.8系数已移除）
-          accumulated_delta += (last_y - pt_client.y);
+          // 更精细的滚动比例（1:0.5）
+          float delta = (last_y - pt_client.y) * 0.5f;
+          accumulated_delta += delta;
           last_y = pt_client.y;
 
-          if (fabs(accumulated_delta) >= 1.0f) {
-            const int wheel_delta = static_cast<int>(accumulated_delta);
-            accumulated_delta -= wheel_delta;
+          // 降低触发阈值到0.2
+          if (fabs(accumulated_delta) >= 0.2f) {
+            const int wheel_delta = static_cast<int>(accumulated_delta * 20);  // 系数从40降为20
+            accumulated_delta -= wheel_delta / 20.0f;
             
-            // 降低滚动速度（120 → 40）
             PostMessage(hwnd, WM_MOUSEWHEEL, 
-              MAKEWPARAM(0, wheel_delta * 40),
+              MAKEWPARAM(0, wheel_delta * 120),
               MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           }
           is_in_zone = true;
         } else if (is_in_zone) {
-          // 离开时强制更新last_y防止跳跃
+          // 离开时保存最终坐标
           last_y = pt_client.y;
           accumulated_delta = 0.0f;
           is_in_zone = false;
