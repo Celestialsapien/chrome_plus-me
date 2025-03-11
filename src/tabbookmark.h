@@ -230,48 +230,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
-  static int last_y = 0;
-  static bool in_trigger_area = false;
-
   do {
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-      HWND hwnd = GetForegroundWindow();
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
+    // 新增边缘滚动检测
+    if (wParam == WM_MOUSEMOVE) {
+      HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
-      GetWindowRect(hwnd, &rect);
-      int window_width = rect.right - rect.left;
-      int x = pmouse->pt.x;
-      int y = pmouse->pt.y;
+      GetClientRect(hwnd, &rect);
+      POINT client_pt = pmouse->pt;
+      ScreenToClient(hwnd, &client_pt);
 
-      // 检查鼠标是否在触发区域内
-      bool now_in_trigger_area = (x >= window_width - 8);
+      // 检测右侧8像素区域
+      if (client_pt.x >= rect.right - 8) {
+        static int last_y = 0;
+        int delta = client_pt.y - last_y;
+        last_y = client_pt.y;
 
-      if (now_in_trigger_area) {
-        if (!in_trigger_area) {
-          // 进入触发区域，重置状态
-          last_y = y;
-          in_trigger_area = true;
-        } else {
-          // 在触发区域内移动，触发平滑滚动
-          int delta_y = y - last_y;
-          if (delta_y != 0) {
-            // 模拟鼠标滚轮滚动
-            SendMessage(hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, -delta_y * WHEEL_DELTA), MAKELPARAM(x, y));
-            last_y = y;
-          }
-        }
-      } else {
-        // 离开触发区域，重置状态
-        in_trigger_area = false;
+        // 发送滚动消息（1:1滚动）
+        SendMessage(hwnd, WM_VSCROLL, 
+                   delta > 0 ? SB_LINEDOWN : SB_LINEUP, 
+                   0);
       }
-    } else {
-      // 重置状态
-      in_trigger_area = false;
     }
+
     if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+    
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
