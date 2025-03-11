@@ -24,8 +24,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: build_x86
-            arch: x86
           - name: build_x64
             arch: x64
 
