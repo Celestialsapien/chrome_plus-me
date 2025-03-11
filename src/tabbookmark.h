@@ -232,14 +232,13 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 // 在IsOnTheTabBar等坐标判断函数之后添加新函数
 bool IsInRightEdge(HWND hwnd, POINT pt) {
   RECT rect;
-  if (!GetClientRect(hwnd, &rect)) return false;
-  MapWindowPoints(hwnd, nullptr, (LPPOINT)&rect, 2);
+  GetWindowRect(hwnd, &rect);  // 改用窗口绝对坐标
   return (pt.x >= rect.right - 8 && pt.x <= rect.right);
 }
 float GetScrollRatio(HWND hwnd) {
   SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
   GetScrollInfo(hwnd, SB_VERT, &si);
-  return static_cast<float>(si.nMax - si.nMin + 1) / si.nPage;
+  return si.nPage > 0 ? static_cast<float>(si.nMax - si.nMin + 1) / si.nPage : 1.0f;
 }
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -252,31 +251,31 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
-      bool current_edge = IsInRightEdge(hwnd, pmouse->pt);
+      hwnd = GetAncestor(hwnd, GA_ROOT);  // 获取顶级窗口
       
-      // 状态变化时重置滚动基准点
+      bool current_edge = IsInRightEdge(hwnd, pmouse->pt);
       if (current_edge != is_in_right_edge) {
         last_y = pmouse->pt.y;
         is_in_right_edge = current_edge;
       }
 
-      // 在边缘区域且未按下左键时处理滚动
-      if (is_in_right_edge && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
+      if (is_in_right_edge && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
         int delta_y = pmouse->pt.y - last_y;
         if (delta_y != 0) {
           float ratio = GetScrollRatio(hwnd);
-          int scroll_amount = static_cast<int>(delta_y * ratio);
-          SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, 
-              GetScrollPos(hwnd, SB_VERT) + scroll_amount), 0);
+          int scroll_amount = static_cast<int>(-delta_y * ratio);  // 调整滚动方向
+          
+          // 改用更可靠的滚动方式
+          SCROLLINFO si = { sizeof(SCROLLINFO), SIF_POS | SIF_TRACKPOS };
+          GetScrollInfo(hwnd, SB_VERT, &si);
+          si.nPos = max(0, min(si.nMax, si.nPos + scroll_amount));
+          SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+          SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, si.nPos), 0);
         }
         last_y = pmouse->pt.y;
-      } else {
-        last_y = 0; // 离开边缘区域时重置
       }
     }
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      break;
-    }
+    
     
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
