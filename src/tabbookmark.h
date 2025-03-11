@@ -7,10 +7,8 @@ HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 // 在全局变量区域添加
-static bool is_smooth_scroll = false;
-static HWND scroll_hwnd = nullptr;
-static int last_scroll_y = 0;  // 改为只记录Y坐标
-static SCROLLINFO scroll_info = { sizeof(SCROLLINFO) };
+static int last_y = 0;
+static bool is_in_right_edge = false;
 
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -231,6 +229,19 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+// 在IsOnTheTabBar等坐标判断函数之后添加新函数
+bool IsInRightEdge(HWND hwnd, POINT pt) {
+  RECT rect;
+  if (!GetClientRect(hwnd, &rect)) return false;
+  MapWindowPoints(hwnd, nullptr, (LPPOINT)&rect, 2);
+  return (pt.x >= rect.right - 8 && pt.x <= rect.right);
+}
+float GetScrollRatio(HWND hwnd) {
+  SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
+  GetScrollInfo(hwnd, SB_VERT, &si);
+  return static_cast<float>(si.nMax - si.nMin + 1) / si.nPage;
+}
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -238,86 +249,36 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-
-    // 完整的WM_MOUSEMOVE处理逻辑
+    // 新增边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
-      RECT client_rect;
-      GetClientRect(hwnd, &client_rect);
+      bool current_edge = IsInRightEdge(hwnd, pmouse->pt);
       
-      // 精确坐标转换
-      POINT pt = pmouse->pt;
-      ScreenToClient(hwnd, &pt);
-      
-      // 获取滚动条信息
-      scroll_info.fMask = SIF_ALL;
-      GetScrollInfo(hwnd, SB_VERT, &scroll_info);
-      
-      // 计算实际内容高度
-      int content_height = scroll_info.nMax - scroll_info.nMin + scroll_info.nPage;
-      int visible_height = scroll_info.nPage;
+      // 状态变化时重置滚动基准点
+      if (current_edge != is_in_right_edge) {
+        last_y = pmouse->pt.y;
+        is_in_right_edge = current_edge;
+      }
 
-      // 修正触发区判断（右侧8像素区域）
-      bool in_trigger = (pt.x >= (client_rect.right - 8)) && 
-                       (pt.x <= client_rect.right) &&
-                       (pt.y >= 0) && 
-                       (pt.y <= client_rect.bottom);
-
-      if (in_trigger && !IsPressed(VK_LBUTTON)) {
-      int delta_y = pt.y - last_scroll_y;
-      // 修复1：首次进入时立即初始化坐标
-      if (!is_smooth_scroll) {
-      last_scroll_y = pt.y;
-      delta_y = 0;  // 忽略首次移动的坐标差
-      }             
-      // 修复2：添加滚动方向校验
-      if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
-      // 动态计算滚动比例
-      double ratio = (content_height > 0 && visible_height > 0) 
-      ? static_cast<double>(content_height) / visible_height
-      : 1.0;
-                          
-      // 非线性速度衰减因子
-      double speed_factor = 1.0 - pow(static_cast<double>(scroll_info.nPos) / content_height, 2);
-      peed_factor = std::clamp(speed_factor, 0.2, 1.0);
-                          
-      // 精确滚动计算
-      int scroll_step = static_cast<int>(-delta_y * ratio * speed_factor * 0.5 * WHEEL_DELTA);
-                          
-     // 新增滚动量限制（最大不超过2屏）
-     int max_step = static_cast<int>(2 * visible_height * ratio);
-     croll_step = std::clamp(scroll_step, -max_step, max_step);  // 调整到发送事件前
-                
-      / 发送带魔数标记的滚轮事件
-      NPUT input = {0};
-      nput.type = INPUT_MOUSE;
-      input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-      input.mi.mouseData = scroll_step;
-      input.mi.dwExtraInfo = MAGIC_CODE;
-      SendInput(1, &input, sizeof(INPUT));
-      }
-                        
-      // 更新坐标必须在最后执行
-      last_scroll_y = pt.y;  // 移动到if语句外
-      }
-      }
-        else {
-          is_smooth_scroll = true;
-          scroll_hwnd = hwnd;
-          last_scroll_y = pt.y;
+      // 在边缘区域且未按下左键时处理滚动
+      if (is_in_right_edge && !(GetKeyState(VK_LBUTTON) & 0x8000)) {
+        int delta_y = pmouse->pt.y - last_y;
+        if (delta_y != 0) {
+          float ratio = GetScrollRatio(hwnd);
+          int scroll_amount = static_cast<int>(delta_y * ratio);
+          SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, 
+              GetScrollPos(hwnd, SB_VERT) + scroll_amount), 0);
         }
-      }
-      else {
-        is_smooth_scroll = false;
-        scroll_hwnd = nullptr;
-        last_scroll_y = 0;
+        last_y = pmouse->pt.y;
+      } else {
+        last_y = 0; // 离开边缘区域时重置
       }
     }
-
     if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
     
+
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
