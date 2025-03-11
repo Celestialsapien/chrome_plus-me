@@ -264,41 +264,43 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                        (pt.y <= client_rect.bottom);
 
       if (in_trigger && !IsPressed(VK_LBUTTON)) {
-        int delta_y = pt.y - last_scroll_y;
-        // 修复1：首次进入时立即初始化坐标
-        if (!is_smooth_scroll) {
-          last_scroll_y = pt.y;
-          delta_y = 0;  // 忽略首次移动的坐标差
-        }
-        // 修复2：添加滚动方向校验
-        if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
-        if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
-          // 动态计算滚动比例
-          double ratio = (content_height > 0 && visible_height > 0) 
-                       ? static_cast<double>(content_height) / visible_height
-                       : 1.0;
-          
-          // 非线性速度衰减因子
-          double speed_factor = 1.0 - pow(static_cast<double>(scroll_info.nPos) / content_height, 2);
-          speed_factor = std::clamp(speed_factor, 0.2, 1.0);
-          
-          // 精确滚动计算
-          int scroll_step = static_cast<int>(-delta_y * ratio * speed_factor * 0.5 * WHEEL_DELTA);
-          
-          // 发送带魔数标记的滚轮事件
-          INPUT input = {0};
-          input.type = INPUT_MOUSE;
-          input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-          input.mi.mouseData = scroll_step;
-          input.mi.dwExtraInfo = MAGIC_CODE;
-          SendInput(1, &input, sizeof(INPUT));
-          // 新增滚动量限制（最大不超过2屏）
-          int max_step = static_cast<int>(2 * visible_height * ratio);
-          scroll_step = std::clamp(scroll_step, -max_step, max_step);
-        }
-          // 更新坐标必须在最后执行
-          last_scroll_y = pt.y;
-        }
+      int delta_y = pt.y - last_scroll_y;
+      // 修复1：首次进入时立即初始化坐标
+      if (!is_smooth_scroll) {
+      last_scroll_y = pt.y;
+      delta_y = 0;  // 忽略首次移动的坐标差
+      }             
+      // 修复2：添加滚动方向校验
+      if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
+      // 动态计算滚动比例
+      double ratio = (content_height > 0 && visible_height > 0) 
+      ? static_cast<double>(content_height) / visible_height
+      : 1.0;
+                          
+      // 非线性速度衰减因子
+      double speed_factor = 1.0 - pow(static_cast<double>(scroll_info.nPos) / content_height, 2);
+      peed_factor = std::clamp(speed_factor, 0.2, 1.0);
+                          
+      // 精确滚动计算
+      int scroll_step = static_cast<int>(-delta_y * ratio * speed_factor * 0.5 * WHEEL_DELTA);
+                          
+     // 新增滚动量限制（最大不超过2屏）
+     int max_step = static_cast<int>(2 * visible_height * ratio);
+     croll_step = std::clamp(scroll_step, -max_step, max_step);  // 调整到发送事件前
+                
+      / 发送带魔数标记的滚轮事件
+      NPUT input = {0};
+      nput.type = INPUT_MOUSE;
+      input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+      input.mi.mouseData = scroll_step;
+      input.mi.dwExtraInfo = MAGIC_CODE;
+      SendInput(1, &input, sizeof(INPUT));
+      }
+                        
+      // 更新坐标必须在最后执行
+      last_scroll_y = pt.y;  // 移动到if语句外
+      }
+      }
         else {
           is_smooth_scroll = true;
           scroll_hwnd = hwnd;
