@@ -246,18 +246,22 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         int delta = client_pt.y - last_y;
         last_y = client_pt.y;
 
-        // 获取滚动条信息
+        // 获取完整滚动信息
         SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
         GetScrollInfo(hwnd, SB_VERT, &si);
         
-        // 计算新位置并限制范围
+        // 精确计算新位置（考虑页面大小）
         int newPos = si.nPos + delta;
         newPos = max(si.nMin, min(newPos, si.nMax - (int)si.nPage + 1));
         
-        // 设置滚动位置
-        SetScrollPos(hwnd, SB_VERT, newPos, TRUE);
+        // 直接设置滚动位置
+        si.nPos = newPos;
+        si.fMask = SIF_POS;
+        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+        
+        // 发送滚动跟踪消息
         SendMessage(hwnd, WM_VSCROLL, 
-                   MAKEWPARAM(SB_THUMBPOSITION, newPos), 
+                   MAKEWPARAM(SB_THUMBTRACK, newPos), 
                    0);
       }
     }
