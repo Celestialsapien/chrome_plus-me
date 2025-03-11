@@ -6,6 +6,11 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+
+static bool is_smooth_scroll = false;
+static HWND scroll_hwnd = nullptr;
+static POINT last_scroll_pt = {0};
+
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -232,57 +237,53 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-    // 新增边缘滚动检测
+
+    // 修改WM_MOUSEMOVE处理逻辑
     if (wParam == WM_MOUSEMOVE) {
-      HWND hWnd = WindowFromPoint(pmouse->pt);
-      if (hWnd) {
-        RECT rc;
-        GetClientRect(hWnd, &rc);
-        POINT ptClient = pmouse->pt;
-        ScreenToClient(hWnd, &ptClient);
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      RECT client_rect;
+      RECT window_rect;
+      
+      // 获取窗口实际内容区域
+      GetClientRect(hwnd, &client_rect);
+      // 获取包含标题栏的完整窗口尺寸
+      GetWindowRect(hwnd, &window_rect);
+      
+      // 转换鼠标坐标到客户区坐标
+      POINT pt = pmouse->pt;
+      ScreenToClient(hwnd, &pt);
 
-        // 检测右侧20像素区域
-        const int scrollZoneWidth = 20;
-        bool inScrollZone = ptClient.x >= (rc.right - scrollZoneWidth);
+      // 检测右侧8像素触发区（包含窗口边框）
+      bool in_trigger = (pt.x >= (client_rect.right - 8)) && 
+                       (pt.x <= client_rect.right);
+
+      if (in_trigger && !IsPressed(VK_LBUTTON)) {
+        // 计算可用高度比例（窗口总高度 : 客户区高度）
+        int window_height = window_rect.bottom - window_rect.top;
+        int client_height = client_rect.bottom - client_rect.top;
+        double ratio = static_cast<double>(window_height) / client_height;
+
+        is_smooth_scroll = true;
+        scroll_hwnd = hwnd;
+        last_scroll_pt = pmouse->pt;
         
-        static bool wasInScrollZone = false;
-        static POINT lastPt{};
-
-        if (inScrollZone) {
-          // 初始化或重置上次坐标
-          if (!wasInScrollZone) {
-            lastPt = ptClient;
-            wasInScrollZone = true;
-          }
-
-          // 计算垂直移动量（调整方向）
-          int deltaY = ptClient.y - lastPt.y;
-          
-          // 生成平滑滚动事件（降低滚动速度）
-          if (deltaY != 0) {
-            // 使用更小的乘数系数（原WHEEL_DELTA=120，这里使用40）
-            const int SCROLL_FACTOR = 40;
-            INPUT input{};
-            input.type = INPUT_MOUSE;
-            input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-            input.mi.mouseData = static_cast<DWORD>(deltaY * SCROLL_FACTOR);
-            
-            // 发送到目标窗口
-            SetForegroundWindow(hWnd);
-            SendInput(1, &input, sizeof(INPUT));
-          }
-          lastPt = ptClient;
-          return 1; // 拦截鼠标移动
-        } else {
-          wasInScrollZone = false; // 离开区域时重置状态
-        }
+        // 根据比例计算等效滚动步长
+        int scroll_step = static_cast<int>(client_height * 0.1 * ratio);
+        // 发送自定义滚轮消息（参数需要根据实际需求调整）
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                   MAKEWPARAM(0, -scroll_step * WHEEL_DELTA), 
+                   MAKELPARAM(pt.x, pt.y));
+      }
+      else {
+        is_smooth_scroll = false;
+        scroll_hwnd = nullptr;
       }
     }
+
     if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
     
-
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
