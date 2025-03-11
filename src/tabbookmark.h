@@ -6,10 +6,6 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-// 在全局变量区域添加
-static int last_y = 0;
-static bool is_in_right_edge = false;
-
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -229,54 +225,53 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
-// 在IsOnTheTabBar等坐标判断函数之后添加新函数
-bool IsInRightEdge(HWND hwnd, POINT pt) {
-  RECT rect;
-  GetWindowRect(hwnd, &rect);  // 改用窗口绝对坐标
-  return (pt.x >= rect.right - 8 && pt.x <= rect.right);
-}
-float GetScrollRatio(HWND hwnd) {
-  SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
-  GetScrollInfo(hwnd, SB_VERT, &si);
-  return si.nPage > 0 ? static_cast<float>(si.nMax - si.nMin + 1) / si.nPage : 1.0f;
-}
-
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
-  do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-    // 新增边缘滚动处理
-    if (wParam == WM_MOUSEMOVE) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      hwnd = GetAncestor(hwnd, GA_ROOT);  // 获取顶级窗口
-      
-      bool current_edge = IsInRightEdge(hwnd, pmouse->pt);
-      if (current_edge != is_in_right_edge) {
-        last_y = pmouse->pt.y;
-        is_in_right_edge = current_edge;
-      }
+  static int last_y = 0;
+  static bool in_trigger_area = false;
 
-      if (is_in_right_edge && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
-        int delta_y = pmouse->pt.y - last_y;
-        if (delta_y != 0) {
-          float ratio = GetScrollRatio(hwnd);
-          int scroll_amount = static_cast<int>(-delta_y * ratio);  // 调整滚动方向
-          
-          // 改用更可靠的滚动方式
-          SCROLLINFO si = { sizeof(SCROLLINFO), SIF_POS | SIF_TRACKPOS };
-          GetScrollInfo(hwnd, SB_VERT, &si);
-          si.nPos = max(0, min(si.nMax, si.nPos + scroll_amount));
-          SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-          SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, si.nPos), 0);
+  do {
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+      HWND hwnd = GetForegroundWindow();
+      RECT rect;
+      GetWindowRect(hwnd, &rect);
+      int window_width = rect.right - rect.left;
+      int x = pmouse->pt.x;
+      int y = pmouse->pt.y;
+
+      // 检查鼠标是否在触发区域内
+      bool now_in_trigger_area = (x >= window_width - 8);
+
+      if (now_in_trigger_area) {
+        if (!in_trigger_area) {
+          // 进入触发区域，重置状态
+          last_y = y;
+          in_trigger_area = true;
+        } else {
+          // 在触发区域内移动，触发平滑滚动
+          int delta_y = y - last_y;
+          if (delta_y != 0) {
+            // 模拟鼠标滚轮滚动
+            SendMessage(hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, -delta_y * WHEEL_DELTA), MAKELPARAM(x, y));
+            last_y = y;
+          }
         }
-        last_y = pmouse->pt.y;
+      } else {
+        // 离开触发区域，重置状态
+        in_trigger_area = false;
       }
+    } else {
+      // 重置状态
+      in_trigger_area = false;
     }
-    
-    
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      break;
+    }
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
