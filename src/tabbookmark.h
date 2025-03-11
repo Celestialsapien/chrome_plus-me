@@ -265,8 +265,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
       if (in_trigger && !IsPressed(VK_LBUTTON)) {
         int delta_y = pt.y - last_scroll_y;
-        last_scroll_y = pt.y;
-        
+        // 修复1：首次进入时立即初始化坐标
+        if (!is_smooth_scroll) {
+          last_scroll_y = pt.y;
+          delta_y = 0;  // 忽略首次移动的坐标差
+        }
+        // 修复2：添加滚动方向校验
+        if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
         if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
           // 动态计算滚动比例
           double ratio = (content_height > 0 && visible_height > 0) 
@@ -287,6 +292,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           input.mi.mouseData = scroll_step;
           input.mi.dwExtraInfo = MAGIC_CODE;
           SendInput(1, &input, sizeof(INPUT));
+          // 新增滚动量限制（最大不超过2屏）
+          int max_step = static_cast<int>(2 * visible_height * ratio);
+          scroll_step = std::clamp(scroll_step, -max_step, max_step);
+        }
+          // 更新坐标必须在最后执行
+          last_scroll_y = pt.y;
         }
         else {
           is_smooth_scroll = true;
