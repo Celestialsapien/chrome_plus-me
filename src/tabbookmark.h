@@ -235,31 +235,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
+    
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
       GetClientRect(hwnd, &rect);
       
-      // 转换鼠标坐标到客户区
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      // 检测右侧8像素区域
       if (client_pt.x >= rect.right - 8) {
-        // 修改滚动量计算（移除原始 WHEEL_DELTA 的使用）
-        int scrollAmount = delta * CUSTOM_WHEEL_DELTA;  // 现在1像素对应1单位滚动
-        SendMessage(hwnd, WM_MOUSEWHEEL, 
-                    MAKEWPARAM(0, scrollAmount),  // 使用自定义滚动步长
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        static LONG lastY = 0;  // 添加静态变量记录上次Y坐标
+        LONG delta = client_pt.y - lastY;
+        lastY = client_pt.y;
+
+        if (delta != 0) {
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
+        return 1;
       }
-      return 1;
-      }
-      break;
+      break;  // 修复丢失的break语句
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
