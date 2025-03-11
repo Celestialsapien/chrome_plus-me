@@ -6,6 +6,10 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+
+#ifndef CUSTOM_WHEEL_DELTA
+#define CUSTOM_WHEEL_DELTA 1  // 1:1 滚动比例
+#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -231,45 +235,32 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
+    if (wParam == WM_NCMOUSEMOVE) {
+      break;
+    }
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
-
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
       GetClientRect(hwnd, &rect);
+      
+      // 转换鼠标坐标到客户区
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-
+      
+      // 检测右侧8像素区域
       if (client_pt.x >= rect.right - 8) {
-        static int last_y = 0;
-        int delta = client_pt.y - last_y;
-        last_y = client_pt.y;
-
-        // 获取完整滚动信息
-        SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
-        GetScrollInfo(hwnd, SB_VERT, &si);
-        
-        // 精确计算新位置（考虑页面大小）
-        int newPos = si.nPos + delta;
-        newPos = max(si.nMin, min(newPos, si.nMax - (int)si.nPage + 1));
-        
-        // 直接设置滚动位置
-        si.nPos = newPos;
-        si.fMask = SIF_POS;
-        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-        
-        // 发送滚动跟踪消息
-        SendMessage(hwnd, WM_VSCROLL, 
-                   MAKEWPARAM(SB_THUMBTRACK, newPos), 
-                   0);
+        // 修改滚动量计算（移除原始 WHEEL_DELTA 的使用）
+        int scrollAmount = delta * CUSTOM_WHEEL_DELTA;  // 现在1像素对应1单位滚动
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                    MAKEWPARAM(0, scrollAmount),  // 使用自定义滚动步长
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
       }
-    }
-
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      return 1;
+      }
       break;
     }
-    
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
