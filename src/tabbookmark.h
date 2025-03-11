@@ -241,15 +241,23 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
 
-      // 检测右侧8像素区域
       if (client_pt.x >= rect.right - 8) {
         static int last_y = 0;
         int delta = client_pt.y - last_y;
         last_y = client_pt.y;
 
-        // 发送滚动消息（1:1滚动）
+        // 获取滚动条信息
+        SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
+        GetScrollInfo(hwnd, SB_VERT, &si);
+        
+        // 计算新位置并限制范围
+        int newPos = si.nPos + delta;
+        newPos = max(si.nMin, min(newPos, si.nMax - (int)si.nPage + 1));
+        
+        // 设置滚动位置
+        SetScrollPos(hwnd, SB_VERT, newPos, TRUE);
         SendMessage(hwnd, WM_VSCROLL, 
-                   delta > 0 ? SB_LINEDOWN : SB_LINEUP, 
+                   MAKEWPARAM(SB_THUMBPOSITION, newPos), 
                    0);
       }
     }
