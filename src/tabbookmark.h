@@ -6,10 +6,11 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
+// 在全局变量区域添加
 static bool is_smooth_scroll = false;
 static HWND scroll_hwnd = nullptr;
 static int last_scroll_y = 0;  // 改为只记录Y坐标
+static SCROLLINFO scroll_info = { sizeof(SCROLLINFO) };
 
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -238,7 +239,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
-    // 修改WM_MOUSEMOVE处理逻辑
+    // 完整的WM_MOUSEMOVE处理逻辑
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT client_rect;
@@ -248,33 +249,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT pt = pmouse->pt;
       ScreenToClient(hwnd, &pt);
       
-      // 修正触发区判断（排除滚动条自身）
+      // 获取滚动条信息
+      scroll_info.fMask = SIF_ALL;
+      GetScrollInfo(hwnd, SB_VERT, &scroll_info);
+      
+      // 计算实际内容高度
+      int content_height = scroll_info.nMax - scroll_info.nMin + scroll_info.nPage;
+      int visible_height = scroll_info.nPage;
+
+      // 修正触发区判断（右侧8像素区域）
       bool in_trigger = (pt.x >= (client_rect.right - 8)) && 
                        (pt.x <= client_rect.right) &&
                        (pt.y >= 0) && 
                        (pt.y <= client_rect.bottom);
 
       if (in_trigger && !IsPressed(VK_LBUTTON)) {
-        // 计算真实滚动量
         int delta_y = pt.y - last_scroll_y;
         last_scroll_y = pt.y;
         
         if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
-          // 根据窗口高度计算动态比例
-          int window_height = client_rect.bottom - client_rect.top;
-          double ratio = window_height > 0 ? 1.0 + (window_height / 1000.0) : 1.0;
+          // 动态计算滚动比例
+          double ratio = (content_height > 0 && visible_height > 0) 
+                       ? static_cast<double>(content_height) / visible_height
+                       : 1.0;
           
-          // 修正滚动方向（正delta向上，负向下）
-          int scroll_amount = static_cast<int>(-delta_y * ratio * WHEEL_DELTA);
+          // 非线性速度衰减因子
+          double speed_factor = 1.0 - pow(static_cast<double>(scroll_info.nPos) / content_height, 2);
+          speed_factor = std::clamp(speed_factor, 0.2, 1.0);
           
-          // 发送带MAGIC_CODE的消息避免死循环
-          mouse_event(
-            MOUSEEVENTF_WHEEL, 
-            pmouse->pt.x, 
-            pmouse->pt.y,
-            scroll_amount,
-            GetMessageExtraInfo()
-          );
+          // 精确滚动计算
+          int scroll_step = static_cast<int>(-delta_y * ratio * speed_factor * 0.5 * WHEEL_DELTA);
+          
+          // 发送带魔数标记的滚轮事件
+          INPUT input = {0};
+          input.type = INPUT_MOUSE;
+          input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+          input.mi.mouseData = scroll_step;
+          input.mi.dwExtraInfo = MAGIC_CODE;
+          SendInput(1, &input, sizeof(INPUT));
         }
         else {
           is_smooth_scroll = true;
