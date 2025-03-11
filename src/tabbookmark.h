@@ -6,7 +6,7 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-// 在全局变量区域添加
+
 static bool is_smooth_scroll = false;
 static HWND scroll_hwnd = nullptr;
 static int last_scroll_y = 0;  // 改为只记录Y坐标
