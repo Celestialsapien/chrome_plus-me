@@ -9,7 +9,7 @@ HHOOK mouse_hook = nullptr;
 // 在全局变量区域添加
 static bool is_smooth_scroll = false;
 static HWND scroll_hwnd = nullptr;
-static POINT last_scroll_pt = {0};
+static int last_scroll_y = 0;  // 改为只记录Y坐标
 
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,41 +242,50 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT client_rect;
-      RECT window_rect;
-      
-      // 获取窗口实际内容区域
       GetClientRect(hwnd, &client_rect);
-      // 获取包含标题栏的完整窗口尺寸
-      GetWindowRect(hwnd, &window_rect);
       
-      // 转换鼠标坐标到客户区坐标
+      // 精确坐标转换
       POINT pt = pmouse->pt;
       ScreenToClient(hwnd, &pt);
-
-      // 检测右侧8像素触发区（包含窗口边框）
+      
+      // 修正触发区判断（排除滚动条自身）
       bool in_trigger = (pt.x >= (client_rect.right - 8)) && 
-                       (pt.x <= client_rect.right);
+                       (pt.x <= client_rect.right) &&
+                       (pt.y >= 0) && 
+                       (pt.y <= client_rect.bottom);
 
       if (in_trigger && !IsPressed(VK_LBUTTON)) {
-        // 计算可用高度比例（窗口总高度 : 客户区高度）
-        int window_height = window_rect.bottom - window_rect.top;
-        int client_height = client_rect.bottom - client_rect.top;
-        double ratio = static_cast<double>(window_height) / client_height;
-
-        is_smooth_scroll = true;
-        scroll_hwnd = hwnd;
-        last_scroll_pt = pmouse->pt;
+        // 计算真实滚动量
+        int delta_y = pt.y - last_scroll_y;
+        last_scroll_y = pt.y;
         
-        // 根据比例计算等效滚动步长
-        int scroll_step = static_cast<int>(client_height * 0.1 * ratio);
-        // 发送自定义滚轮消息（参数需要根据实际需求调整）
-        SendMessage(hwnd, WM_MOUSEWHEEL, 
-                   MAKEWPARAM(0, -scroll_step * WHEEL_DELTA), 
-                   MAKELPARAM(pt.x, pt.y));
+        if (is_smooth_scroll && scroll_hwnd == hwnd && delta_y != 0) {
+          // 根据窗口高度计算动态比例
+          int window_height = client_rect.bottom - client_rect.top;
+          double ratio = window_height > 0 ? 1.0 + (window_height / 1000.0) : 1.0;
+          
+          // 修正滚动方向（正delta向上，负向下）
+          int scroll_amount = static_cast<int>(-delta_y * ratio * WHEEL_DELTA);
+          
+          // 发送带MAGIC_CODE的消息避免死循环
+          mouse_event(
+            MOUSEEVENTF_WHEEL, 
+            pmouse->pt.x, 
+            pmouse->pt.y,
+            scroll_amount,
+            GetMessageExtraInfo()
+          );
+        }
+        else {
+          is_smooth_scroll = true;
+          scroll_hwnd = hwnd;
+          last_scroll_y = pt.y;
+        }
       }
       else {
         is_smooth_scroll = false;
         scroll_hwnd = nullptr;
+        last_scroll_y = 0;
       }
     }
 
