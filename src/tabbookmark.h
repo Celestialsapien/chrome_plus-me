@@ -255,12 +255,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = lastY - client_pt.y;
+        // 直接使用原始差值作为滚动量
+        int scrollAmount = lastY - client_pt.y;
         lastY = client_pt.y;
 
-        if (delta != 0) {
+        if (scrollAmount != 0) {
+          // 发送精确滚动消息（移除乘数因子）
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKEWPARAM(0, scrollAmount), // 直接使用原始差值
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
