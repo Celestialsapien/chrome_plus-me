@@ -236,8 +236,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG targetY = -1;    // 目标Y坐标
-    static HWND scrollHwnd = nullptr; // 当前滚动窗口
+    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -251,44 +250,32 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      // 进入右侧滚动区域时初始化目标位置
       if (client_pt.x >= rect.right - 8) {
-        targetY = client_pt.y; // 持续更新目标位置
-        scrollHwnd = hwnd;
+        // 获取滚动条信息
+        SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
+        GetScrollInfo(hwnd, SB_VERT, &si);
         
-        // 立即触发首次滚动
-        static LONG lastSentY = client_pt.y;
-        int scrollAmount = lastSentY - client_pt.y;
-        lastSentY = client_pt.y;
-
-        if (scrollAmount != 0) {
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                    MAKEWPARAM(0, scrollAmount),
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        if (lastY == -1) {       // 首次进入触发区时初始化坐标
+          lastY = client_pt.y;
         }
+        // 计算新的滚动位置
+        int delta = client_pt.y - lastY;
+        lastY = client_pt.y;
+        
+        // 更新滚动位置
+        int newPos = si.nPos + delta;
+        newPos = max(si.nMin, min(newPos, si.nMax - (int)si.nPage + 1));
+        
+        // 直接设置滚动条位置
+        si.nPos = newPos;
+        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+        SendMessage(hwnd, WM_VSCROLL, SB_THUMBPOSITION | (newPos << 16), 0);
+        
         return 1;
       }else {
-        // 离开区域时重置目标
-        targetY = -1;
-        scrollHwnd = nullptr;
+        lastY = -1;  // 离开触发区时重置坐标
       }
       break;  // 修复丢失的break语句
-    }
-    // 新增持续滚动处理（需要放在消息循环中）
-    if (targetY != -1 && scrollHwnd) {
-      POINT current_pt;
-      GetCursorPos(&current_pt);
-      ScreenToClient(scrollHwnd, &current_pt);
-      
-      int remaining = targetY - current_pt.y;
-      if (abs(remaining) > 1) {
-        // 每次移动剩余距离的1/4实现平滑滚动
-        int smoothScroll = remaining / 4;
-        SendMessage(scrollHwnd, WM_MOUSEWHEEL, 
-                  MAKEWPARAM(0, smoothScroll),
-                  MAKELPARAM(current_pt.x, current_pt.y));
-      }
-      return 1;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
