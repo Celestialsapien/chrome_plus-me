@@ -251,26 +251,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 获取滚动条信息
-        SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
-        GetScrollInfo(hwnd, SB_VERT, &si);
-        
-        if (lastY == -1) {       // 首次进入触发区时初始化坐标
+        if (lastY == -1) {
           lastY = client_pt.y;
         }
-        // 计算新的滚动位置
-        int delta = client_pt.y - lastY;
+        
+        // 使用更精确的滚动量计算
+        int delta = (client_pt.y - lastY) * 120; // 使用标准WHEEL_DELTA值
         lastY = client_pt.y;
-        
-        // 更新滚动位置
-        int newPos = si.nPos + delta;
-        newPos = max(si.nMin, min(newPos, si.nMax - (int)si.nPage + 1));
-        
-        // 直接设置滚动条位置
-        si.nPos = newPos;
-        SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-        SendMessage(hwnd, WM_VSCROLL, SB_THUMBPOSITION | (newPos << 16), 0);
-        
+
+        if (delta != 0) {
+          // 发送精确的滚轮事件
+          INPUT input = {0};
+          input.type = INPUT_MOUSE;
+          input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+          input.mi.mouseData = delta;
+          input.mi.dx = pmouse->pt.x;
+          input.mi.dy = pmouse->pt.y;
+          SendInput(1, &input, sizeof(INPUT));
+        }
         return 1;
       }else {
         lastY = -1;  // 离开触发区时重置坐标
