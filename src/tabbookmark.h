@@ -251,16 +251,23 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
+        // 获取窗口和内容高度
+        int client_height = rect.bottom - rect.top;
+        int content_height = GetContentHeight(hwnd);
         
-        if (lastY == -1) {       // 首次进入触发区时初始化坐标
+        if (lastY == -1) {
           lastY = client_pt.y;
         }
         LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
 
-        if (delta != 0) {
+        if (delta != 0 && content_height > client_height && client_height > 0) {
+          // 直接使用比例系数，保持原有CUSTOM_WHEEL_DELTA=1
+          double ratio = static_cast<double>(content_height) / client_height;
+          int scroll_delta = static_cast<int>(delta * ratio); 
+          
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKEWPARAM(0, scroll_delta),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
