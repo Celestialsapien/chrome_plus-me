@@ -56,10 +56,16 @@ NodePtr HandleFindBar(HWND hwnd, POINT pt) {
   return top_container_view;
 }
 
-// 新增内容高度获取函数
+// 修改后的内容高度获取函数
 int GetContentHeight(HWND hwnd) {
-  SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
-  if (GetScrollInfo(hwnd, SB_VERT, &si)) {
+  // Edge特定的渲染窗口类名
+  HWND render_hwnd = FindWindowEx(hwnd, NULL, L"Chrome_RenderWidgetHostHWND", NULL);
+  if (!render_hwnd) return 0;
+
+  // 使用Edge滚动条特性获取精确高度
+  SCROLLINFO si = { sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE };
+  if (GetScrollInfo(render_hwnd, SB_VERT, &si)) {
+    // 计算公式：总内容高度 = 最大滚动位置 + 可视区域高度
     return si.nMax + si.nPage;
   }
   return 0;
@@ -260,7 +266,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 获取窗口和内容高度
         int client_height = rect.bottom - rect.top;
         int content_height = GetContentHeight(hwnd);
         
@@ -269,11 +274,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
-
+    
         if (delta != 0 && content_height > client_height && client_height > 0) {
-          // 直接使用比例系数，保持原有CUSTOM_WHEEL_DELTA=1
-          double ratio = static_cast<double>(content_height) / client_height;
-          int scroll_delta = static_cast<int>(delta * ratio); 
+          // 添加Edge浏览器滚动补偿系数
+          const double edge_compensation = 1.25; // Edge滚动速度补偿
+          double ratio = static_cast<double>(content_height) / client_height * edge_compensation;
+          int scroll_delta = static_cast<int>(delta * ratio);
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scroll_delta),
