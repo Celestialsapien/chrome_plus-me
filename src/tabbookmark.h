@@ -56,6 +56,15 @@ NodePtr HandleFindBar(HWND hwnd, POINT pt) {
   return top_container_view;
 }
 
+// 新增内容高度获取函数
+int GetContentHeight(HWND hwnd) {
+  SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
+  if (GetScrollInfo(hwnd, SB_VERT, &si)) {
+    return si.nMax + si.nPage;
+  }
+  return 0;
+}
+
 class IniConfig {
  public:
   IniConfig()
