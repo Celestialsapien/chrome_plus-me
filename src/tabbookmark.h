@@ -236,7 +236,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
+    static LONG targetY = -1;    // 目标Y坐标
+    static HWND scrollHwnd = nullptr; // 当前滚动窗口
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -250,26 +251,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
+      // 进入右侧滚动区域时初始化目标位置
       if (client_pt.x >= rect.right - 8) {
+        targetY = client_pt.y; // 持续更新目标位置
+        scrollHwnd = hwnd;
         
-        if (lastY == -1) {       // 首次进入触发区时初始化坐标
-          lastY = client_pt.y;
-        }
-        // 直接使用原始差值作为滚动量
-        int scrollAmount = lastY - client_pt.y;
-        lastY = client_pt.y;
+        // 立即触发首次滚动
+        static LONG lastSentY = client_pt.y;
+        int scrollAmount = lastSentY - client_pt.y;
+        lastSentY = client_pt.y;
 
         if (scrollAmount != 0) {
-          // 发送精确滚动消息（移除乘数因子）
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount), // 直接使用原始差值
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                    MAKEWPARAM(0, scrollAmount),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
       }else {
-        lastY = -1;  // 离开触发区时重置坐标
+        // 离开区域时重置目标
+        targetY = -1;
+        scrollHwnd = nullptr;
       }
       break;  // 修复丢失的break语句
+    }
+    // 新增持续滚动处理（需要放在消息循环中）
+    if (targetY != -1 && scrollHwnd) {
+      POINT current_pt;
+      GetCursorPos(&current_pt);
+      ScreenToClient(scrollHwnd, &current_pt);
+      
+      int remaining = targetY - current_pt.y;
+      if (abs(remaining) > 1) {
+        // 每次移动剩余距离的1/4实现平滑滚动
+        int smoothScroll = remaining / 4;
+        SendMessage(scrollHwnd, WM_MOUSEWHEEL, 
+                  MAKEWPARAM(0, smoothScroll),
+                  MAKELPARAM(current_pt.x, current_pt.y));
+      }
+      return 1;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
