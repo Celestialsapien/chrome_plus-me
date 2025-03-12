@@ -269,7 +269,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (delta != 0) {
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKEWPARAM(0, delta),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
