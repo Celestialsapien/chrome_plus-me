@@ -264,7 +264,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = (lastY - client_pt.y) * scroll_ratio * CUSTOM_WHEEL_DELTA; // 应用滚动比例系数
+        LONG delta = (lastY - client_pt.y) * CUSTOM_WHEEL_DELTA; // 先应用基础系数
+        delta = static_cast<int>(delta * scroll_ratio * 120 / 1); // 增加120倍放大并应用滚动比例
         lastY = client_pt.y;
 
         if (delta != 0) {
