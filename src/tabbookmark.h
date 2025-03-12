@@ -251,23 +251,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        if (lastY == -1) {
+        
+        if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        
-        // 使用更精确的滚动量计算
-        int delta = (client_pt.y - lastY) * 120; // 使用标准WHEEL_DELTA值
+        LONG delta = (lastY - client_pt.y) *2;
         lastY = client_pt.y;
 
         if (delta != 0) {
-          // 发送精确的滚轮事件
-          INPUT input = {0};
-          input.type = INPUT_MOUSE;
-          input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-          input.mi.mouseData = delta;
-          input.mi.dx = pmouse->pt.x;
-          input.mi.dy = pmouse->pt.y;
-          SendInput(1, &input, sizeof(INPUT));
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
       }else {
