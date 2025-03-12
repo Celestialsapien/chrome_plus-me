@@ -251,12 +251,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        static LONG lastY = LONG_MIN;  // 添加静态变量记录上次Y坐标
-        // 首次进入触发区时初始化lastY
-        if (lastY == LONG_MIN) {
-          lastY = client_pt.y;
-          break;
-        }
+        static LONG lastY = 0;  // 添加静态变量记录上次Y坐标
         LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
 
@@ -266,10 +261,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         return 1;
-      }else {
-        // 离开触发区时重置lastY
-        static LONG lastY = LONG_MIN;
-        lastY = LONG_MIN;
       }
       break;  // 修复丢失的break语句
     }
