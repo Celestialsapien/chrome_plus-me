@@ -252,7 +252,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       if (client_pt.x >= rect.right - 8) {
         static LONG lastY = 0;  // 添加静态变量记录上次Y坐标
-        LONG delta = client_pt.y - lastY;
+        LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
 
         if (delta != 0) {
