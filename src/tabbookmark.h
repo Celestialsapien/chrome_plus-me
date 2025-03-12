@@ -236,7 +236,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    
+    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -251,11 +251,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        static LONG lastY = -1;  // 添加静态变量记录上次Y坐标
+        
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = (lastY - client_pt.y) * 0.5;
+        LONG delta = (lastY - client_pt.y) /2;
         lastY = client_pt.y;
 
         if (delta != 0) {
