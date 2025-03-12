@@ -255,7 +255,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = (lastY - client_pt.y) /2;
+        LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
 
         if (delta != 0) {
