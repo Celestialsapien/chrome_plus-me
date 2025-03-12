@@ -251,11 +251,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
+        // 获取滚动条信息
+        SCROLLINFO si = { sizeof(SCROLLINFO), SIF_ALL };
+        GetScrollInfo(hwnd, SB_VERT, &si);
+        
+        // 计算滚动比例系数（当nMax为0时使用默认值1.0）
+        float scroll_ratio = 1.0f;
+        if (si.nMax > 0) {
+          scroll_ratio = static_cast<float>(si.nPage) / (si.nMax + 1);
+        }
         
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = (lastY - client_pt.y) *2;
+        LONG delta = (lastY - client_pt.y) * scroll_ratio * CUSTOM_WHEEL_DELTA; // 应用滚动比例系数
         lastY = client_pt.y;
 
         if (delta != 0) {
