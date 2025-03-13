@@ -255,33 +255,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 获取浏览器根窗口
-        HWND browserRoot = FindWindowEx(hwnd, NULL, L"BrowserRootView", L"110");
+        // 修正窗口查找方式：使用控件ID获取
+        HWND browserRoot = FindWindowEx(hwnd, NULL, L"BrowserRootView", nullptr);
+        browserRoot = browserRoot ? GetDlgItem(browserRoot, 110) : nullptr;
+        
         int visHeight = 0;
         int maxContentHeight = 0;
         
         if (browserRoot) {
           RECT browserRect;
           GetClientRect(browserRoot, &browserRect);
-          visHeight = browserRect.bottom - 90; // 可视高度
-
-          // 遍历所有网页窗口
+          visHeight = abs(browserRect.bottom - 90); // 保证正值
+          
+          // 修正网页窗口遍历：从渲染框架开始查找
+          HWND renderFrame = FindWindowEx(hwnd, NULL, L"Chrome_WidgetWin_0", nullptr);
           HWND hWeb = nullptr;
-          while ((hWeb = FindWindowEx(hwnd, hWeb, L"Chrome_RenderWidgetHostHWND", nullptr))) {
+          while (renderFrame && (hWeb = FindWindowEx(renderFrame, hWeb, L"Chrome_RenderWidgetHostHWND", nullptr))) {
             RECT clientRect;
             GetClientRect(hWeb, &clientRect);
-            if (clientRect.bottom > maxContentHeight) {
-              maxContentHeight = clientRect.bottom;
-            }
+            maxContentHeight = max(maxContentHeight, (int)clientRect.bottom);
           }
         }
 
-        // 动态计算滚动量
+        // 动态计算滚动量（添加最小高度限制）
         int dynamicDelta = 1;
-        if (visHeight > 0 && maxContentHeight > 0) {
+        if (visHeight > 100 && maxContentHeight > visHeight) { // 添加有效性检查
           float deltaRatio = static_cast<float>(maxContentHeight) / visHeight;
-          dynamicDelta = static_cast<int>(deltaRatio);
-          if (dynamicDelta < 1) dynamicDelta = 1;
+          dynamicDelta = max(static_cast<int>(deltaRatio), 1);
         }
 
         if (lastY == -1) {
