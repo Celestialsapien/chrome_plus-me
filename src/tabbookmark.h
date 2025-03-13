@@ -8,7 +8,7 @@ HHOOK mouse_hook = nullptr;
 #define KEY_PRESSED 0x8000
 
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 22.73  // 1:1 滚动比例
+#define CUSTOM_WHEEL_DELTA 11.37  // 1:1 滚动比例
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -255,7 +255,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (lastY == -1) {       // 首次进入触发区时初始化坐标
           lastY = client_pt.y;
         }
-        LONG delta = client_pt.y - lastY;
+        LONG delta = lastY - client_pt.y;
         lastY = client_pt.y;
 
         if (delta != 0) {
