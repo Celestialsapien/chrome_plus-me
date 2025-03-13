@@ -12,7 +12,7 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
-#endif
+
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
