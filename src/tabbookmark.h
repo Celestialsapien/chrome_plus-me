@@ -8,7 +8,7 @@ HHOOK mouse_hook = nullptr;
 #define KEY_PRESSED 0x8000
 
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 0.5  // 1:1 滚动比例
+#define CUSTOM_WHEEL_DELTA 22.73  // 1:1 滚动比例
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
