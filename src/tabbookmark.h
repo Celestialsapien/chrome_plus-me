@@ -7,8 +7,11 @@ HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
+// 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 11.37  // 1:1 滚动比例
+#define CUSTOM_WHEEL_DELTA 120    // 改为标准滚动量
+#define SMOOTH_FACTOR 0.2f        // 平滑插值因子
+#define SCROLL_THRESHOLD 0.5f     // 滚动阈值
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -237,6 +240,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
+    static float remainder = 0;  // 新增剩余量用于平滑滚动
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -251,23 +255,35 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        
-        if (lastY == -1) {       // 首次进入触发区时初始化坐标
+        if (lastY == -1) {
           lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
         }
+        
+        // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        lastY = client_pt.y;
-
-        if (delta != 0) {
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 应用滚动阈值
+        if (abs(actualScroll) > 0 || abs(remainder) >= SCROLL_THRESHOLD) {
+          // 增加时间因子使滚动更流畅
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA * 16; // 16ms近似帧时间
+          
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, delta * CUSTOM_WHEEL_DELTA),
+                      MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
-        return 1;
-      }else {
-        lastY = -1;  // 离开触发区时重置坐标
+        
+        lastY = client_pt.y;
+      } else {
+        lastY = -1;
+        remainder = 0;  // 离开时重置剩余量
       }
-      break;  // 修复丢失的break语句
+      break;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
