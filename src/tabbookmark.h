@@ -255,38 +255,63 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
+        // 获取浏览器根窗口
+        HWND browserRoot = FindWindowEx(hwnd, NULL, L"BrowserRootView", L"110");
+        int visHeight = 0;
+        int maxContentHeight = 0;
+        
+        if (browserRoot) {
+          RECT browserRect;
+          GetClientRect(browserRoot, &browserRect);
+          visHeight = browserRect.bottom - 90; // 可视高度
+
+          // 遍历所有网页窗口
+          HWND hWeb = nullptr;
+          while ((hWeb = FindWindowEx(hwnd, hWeb, L"Chrome_RenderWidgetHostHWND", nullptr))) {
+            RECT clientRect;
+            GetClientRect(hWeb, &clientRect);
+            if (clientRect.bottom > maxContentHeight) {
+              maxContentHeight = clientRect.bottom;
+            }
+          }
+        }
+
+        // 动态计算滚动量
+        int dynamicDelta = 1;
+        if (visHeight > 0 && maxContentHeight > 0) {
+          float deltaRatio = static_cast<float>(maxContentHeight) / visHeight;
+          dynamicDelta = static_cast<int>(deltaRatio);
+          if (dynamicDelta < 1) dynamicDelta = 1;
+        }
+
         if (lastY == -1) {
           lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
+          remainder = 0;
         }
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
-        // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
-          
+          int scrollAmount = actualScroll * dynamicDelta; // 使用动态计算的delta值
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                    MAKEWPARAM(0, scrollAmount),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
       } else {
         lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
+        remainder = 0;
       }
       break;
     }
