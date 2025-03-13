@@ -2,8 +2,6 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <windowsx.h>
-#include <algorithm>  // 用于clamp函数
 
 HHOOK mouse_hook = nullptr;
 
@@ -255,24 +253,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-
-      // 获取文档总高度
-      LONG sHeight = 0;
-      if (NodePtr document = FindElementWithRole(GetChromeWidgetWin(hwnd), ROLE_SYSTEM_DOCUMENT)) {
-        GetAccessibleSize(document, [&sHeight](RECT docRect) {
-          sHeight = docRect.bottom;
-        });
-      }
-      
-      // 计算视口高度（需要减去滚动条宽度）
-      LONG scrollbarWidth = GetSystemMetrics(SM_CXVSCROLL);
-      LONG scrollboxHeight = rect.bottom - 2 * scrollbarWidth;
-      
-      // 动态计算滚动量系数
-      float wheelFactor = (scrollboxHeight > 0 && sHeight > 0) ? 
-                         static_cast<float>(sHeight) / scrollboxHeight : 
-                         1.0f;
-      int dynamicWheelDelta = static_cast<int>(CUSTOM_WHEEL_DELTA * wheelFactor);
       
       if (client_pt.x >= rect.right - 8) {
         if (lastY == -1) {
@@ -295,10 +275,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * dynamicWheelDelta;  // 使用动态计算值
+          // 移除时间因子，调整滚动量计算
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
+          
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                     MAKEWPARAM(0, scrollAmount),
-                     MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
