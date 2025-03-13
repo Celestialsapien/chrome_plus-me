@@ -2,6 +2,8 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <oleauto.h>  // 用于 BSTR 和 SysAllocString
+#include <oleacc.h>   // 用于 IAccessible
 
 HHOOK mouse_hook = nullptr;
 
@@ -252,58 +254,63 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 8) {
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
+      // 修改边缘滚动检测部分
+if (client_pt.x >= rect.right - 8) {
+  if (lastY == -1) {
+      lastY = client_pt.y;
+      remainder = 0;
+  }
 
-         // 获取浏览器渲染器信息
-    IAccessible* pAcc = nullptr;
-    VARIANT varChild;
-    if (AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&pAcc) == S_OK) {
-        // 获取文档总高度
-        VARIANT varDocHeight;
-        pAcc->get_accValue(CreateVariant(0), &varDocHeight);
-        
-        // 获取可视区域高度
-        RECT clientRect;
-        GetClientRect(hwnd, &clientRect);
-        int viewportHeight = clientRect.bottom - clientRect.top;
+  // 获取浏览器渲染器信息
+  IAccessible* pAcc = nullptr;
+  if (SUCCEEDED(AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&pAcc))) {
+      BSTR bstrValue = nullptr;
+      VARIANT varChild;
+      VariantInit(&varChild);
+      varChild.vt = VT_I4;
+      varChild.lVal = 0;
 
-        // 计算动态滚动量系数
-        if (varDocHeight.vt == VT_BSTR && viewportHeight > 0) {
-          int docHeight = _wtoi(varDocHeight.bstrVal);
-          float custom_wheel_delta = static_cast<float>(docHeight) / viewportHeight;
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
+      // 获取文档总高度
+      if (SUCCEEDED(pAcc->get_accValue(varChild, &bstrValue)) && bstrValue) {
+          // 获取可视区域高度
+          RECT clientRect;
+          GetClientRect(hwnd, &clientRect);
+          int viewportHeight = clientRect.bottom - clientRect.top;
 
-        if (actualScroll != 0) {
-          // 使用基于文档高度的动态滚动量
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                    MAKEWPARAM(0, scrollAmount),
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));y
-                  }
-                }
-                pAcc->Release();
-            }
-            
-            lastY = client_pt.y;
-      } else {
+          // 转换BSTR为整数
+          int docHeight = _wtoi(bstrValue);
+          SysFreeString(bstrValue);
+
+          if (viewportHeight > 0 && docHeight > 0) {
+              // 带插值的平滑计算
+              LONG delta = lastY - client_pt.y;
+              float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+              
+              // 分离整数和小数部分
+              int actualScroll = static_cast<int>(smoothedDelta);
+              remainder = smoothedDelta - actualScroll;
+              
+              // 当余量超过阈值时强制滚动
+              if (abs(remainder) >= SCROLL_THRESHOLD) {
+                  actualScroll += (remainder > 0) ? 1 : -1;
+                  remainder -= (remainder > 0) ? 1 : -1;
+              }
+
+              if (actualScroll != 0) {
+                  // 使用基于文档高度的动态滚动量
+                  int scrollAmount = static_cast<int>(actualScroll * (docHeight / static_cast<float>(viewportHeight)));
+                  
+                  SendMessage(hwnd, WM_MOUSEWHEEL, 
+                            MAKEWPARAM(0, scrollAmount),
+                            MAKELPARAM(pmouse->pt.x, pmouse->pt.y)); 
+              }
+          }
+      }
+      pAcc->Release();
+  }
+  
+  lastY = client_pt.y;
+} else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
       }
