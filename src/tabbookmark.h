@@ -2,17 +2,17 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <oleauto.h>  // 用于 BSTR 和 SysAllocString
-#include <oleacc.h>   // 用于 IAccessible
 
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
 // 增加平滑滚动参数
+#ifndef CUSTOM_WHEEL_DELTA
+#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
 #define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
-
+#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -254,63 +254,37 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      // 修改边缘滚动检测部分
-if (client_pt.x >= rect.right - 8) {
-  if (lastY == -1) {
-      lastY = client_pt.y;
-      remainder = 0;
-  }
+      if (client_pt.x >= rect.right - 8) {
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
+        }
+        
+        // 带插值的平滑计算
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
 
-  // 获取浏览器渲染器信息
-  IAccessible* pAcc = nullptr;
-  if (SUCCEEDED(AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&pAcc))) {
-      BSTR bstrValue = nullptr;
-      VARIANT varChild;
-      VariantInit(&varChild);
-      varChild.vt = VT_I4;
-      varChild.lVal = 0;
-
-      // 获取文档总高度
-      if (SUCCEEDED(pAcc->get_accValue(varChild, &bstrValue)) && bstrValue) {
-          // 获取可视区域高度
-          RECT clientRect;
-          GetClientRect(hwnd, &clientRect);
-          int viewportHeight = clientRect.bottom - clientRect.top;
-
-          // 转换BSTR为整数
-          int docHeight = _wtoi(bstrValue);
-          SysFreeString(bstrValue);
-
-          if (viewportHeight > 0 && docHeight > 0) {
-              // 带插值的平滑计算
-              LONG delta = lastY - client_pt.y;
-              float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-              
-              // 分离整数和小数部分
-              int actualScroll = static_cast<int>(smoothedDelta);
-              remainder = smoothedDelta - actualScroll;
-              
-              // 当余量超过阈值时强制滚动
-              if (abs(remainder) >= SCROLL_THRESHOLD) {
-                  actualScroll += (remainder > 0) ? 1 : -1;
-                  remainder -= (remainder > 0) ? 1 : -1;
-              }
-
-              if (actualScroll != 0) {
-                  // 使用基于文档高度的动态滚动量
-                  int scrollAmount = static_cast<int>(actualScroll * (docHeight / static_cast<float>(viewportHeight)));
-                  
-                  SendMessage(hwnd, WM_MOUSEWHEEL, 
-                            MAKEWPARAM(0, scrollAmount),
-                            MAKELPARAM(pmouse->pt.x, pmouse->pt.y)); 
-              }
-          }
-      }
-      pAcc->Release();
-  }
-  
-  lastY = client_pt.y;
-} else {
+        if (actualScroll != 0) {
+          // 移除时间因子，调整滚动量计算
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
+          
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
+        
+        lastY = client_pt.y;
+      } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
       }
