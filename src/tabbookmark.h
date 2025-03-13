@@ -8,8 +8,6 @@ HHOOK mouse_hook = nullptr;
 #define KEY_PRESSED 0x8000
 
 // 增加平滑滚动参数
-#ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
 #define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
@@ -259,6 +257,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
         }
+
+         // 获取浏览器渲染器信息
+    IAccessible* pAcc = nullptr;
+    VARIANT varChild;
+    if (AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible, (void**)&pAcc) == S_OK) {
+        // 获取文档总高度
+        VARIANT varDocHeight;
+        pAcc->get_accValue(CreateVariant(0), &varDocHeight);
+        
+        // 获取可视区域高度
+        RECT clientRect;
+        GetClientRect(hwnd, &clientRect);
+        int viewportHeight = clientRect.bottom - clientRect.top;
+
+        // 计算动态滚动量系数
+        if (varDocHeight.vt == VT_BSTR && viewportHeight > 0) {
+          int docHeight = _wtoi(varDocHeight.bstrVal);
+          float custom_wheel_delta = static_cast<float>(docHeight) / viewportHeight;
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
@@ -275,15 +291,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
+          // 使用基于文档高度的动态滚动量
+          int scrollAmount = actualScroll * custom_wheel_delta;
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-        
-        lastY = client_pt.y;
+                    MAKEWPARAM(0, scrollAmount),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));y
+                  }
+                }
+                pAcc->Release();
+            }
+            
+            lastY = client_pt.y;
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
