@@ -9,9 +9,9 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 120    // 改为标准滚动量
-#define SMOOTH_FACTOR 0.2f        // 平滑插值因子
-#define SCROLL_THRESHOLD 0.5f     // 滚动阈值
+#define CUSTOM_WHEEL_DELTA 120    // 保持标准滚动量
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -268,10 +268,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
-        // 应用滚动阈值
-        if (abs(actualScroll) > 0 || abs(remainder) >= SCROLL_THRESHOLD) {
-          // 增加时间因子使滚动更流畅
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA * 16; // 16ms近似帧时间
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
+
+        if (actualScroll != 0) {
+          // 移除时间因子，调整滚动量计算
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
