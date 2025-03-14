@@ -10,7 +10,7 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 #define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
-#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SMOOTH_FACTOR 0.9f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
@@ -255,63 +255,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 修正窗口查找方式：使用控件ID获取
-        HWND browserRoot = FindWindowEx(hwnd, NULL, L"BrowserRootView", nullptr);
-        browserRoot = browserRoot ? GetDlgItem(browserRoot, 110) : nullptr;
-        
-        int visHeight = 0;
-        int maxContentHeight = 0;
-        
-        if (browserRoot) {
-          RECT browserRect;
-          GetClientRect(browserRoot, &browserRect);
-          visHeight = abs(browserRect.bottom - 90); // 保证正值
-          
-          // 修正网页窗口遍历：从渲染框架开始查找
-          HWND renderFrame = FindWindowEx(hwnd, NULL, L"Chrome_WidgetWin_0", nullptr);
-          HWND hWeb = nullptr;
-          while (renderFrame && (hWeb = FindWindowEx(renderFrame, hWeb, L"Chrome_RenderWidgetHostHWND", nullptr))) {
-            RECT clientRect;
-            GetClientRect(hWeb, &clientRect);
-            maxContentHeight = max(maxContentHeight, (int)clientRect.bottom);
-          }
-        }
-
-        // 动态计算滚动量（添加最小高度限制）
-        int dynamicDelta = 1;
-        if (visHeight > 100 && maxContentHeight > visHeight) { // 添加有效性检查
-          float deltaRatio = static_cast<float>(maxContentHeight) / visHeight;
-          dynamicDelta = max(static_cast<int>(deltaRatio), 1);
-        }
-
         if (lastY == -1) {
           lastY = client_pt.y;
-          remainder = 0;
+          remainder = 0;  // 重置剩余量
         }
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
+        // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
+        // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * dynamicDelta; // 使用动态计算的delta值
+          // 移除时间因子，调整滚动量计算
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
+          
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                    MAKEWPARAM(0, scrollAmount),
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
       } else {
         lastY = -1;
-        remainder = 0;
+        remainder = 0;  // 离开时重置剩余量
       }
       break;
     }
