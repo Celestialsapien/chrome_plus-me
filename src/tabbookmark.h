@@ -10,7 +10,7 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 #define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
-#define SMOOTH_FACTOR 3.0f        // 提高平滑因子（原0.2）
+#define SMOOTH_FACTOR 0.9f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
