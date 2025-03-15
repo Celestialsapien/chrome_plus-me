@@ -255,6 +255,19 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
+        // 新增滚动条参数获取
+        SCROLLINFO scrollBarInfo = { sizeof(SCROLLINFO), SIF_ALL };
+        GetScrollInfo(hwnd, SB_VERT, &scrollBarInfo);
+        
+        // 计算滚动滑块与窗口高度比例
+        int scrollBarHeight = scrollBarInfo.nPage;  // 滚动滑块高度
+        int triggerAreaHeight = rect.bottom;        // 触发区总高度
+        int wheelDelta = CUSTOM_WHEEL_DELTA;
+        
+        if (scrollBarHeight > 0) {
+          // 当滚动条可见时动态计算滚动量
+          wheelDelta = max(1, triggerAreaHeight / scrollBarHeight);
+        }
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
@@ -276,7 +289,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (actualScroll != 0) {
           // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
+          int scrollAmount = actualScroll * wheelDelta; 
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
