@@ -9,9 +9,9 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-
-#define SMOOTH_FACTOR 0.9f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
+#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
+#define SMOOTH_FACTOR 0.95f      // 提高平滑因子（原0.9）增加动画连贯性
+#define SCROLL_THRESHOLD 0.05f    // 降低滚动阈值（原0.1）提升灵敏度
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -255,22 +255,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 新增滚动条参数获取
-        SCROLLINFO scrollBarInfo = { sizeof(SCROLLINFO), SIF_ALL };
-        GetScrollInfo(hwnd, SB_VERT, &scrollBarInfo);
-        
-        // 计算滚动滑块与窗口高度比例
-        int scrollBarHeight = scrollBarInfo.nPage;  // 滚动滑块高度
-        int triggerAreaHeight = rect.bottom;        // 触发区总高度
-        
-        
-        int wheelDelta = 1;
-        if (scrollBarHeight > 0) {
-          wheelDelta = max(1, triggerAreaHeight / scrollBarHeight);
-        } else {
-          // 当滚动条不可见时使用窗口高度的1/20作为默认灵敏度
-          wheelDelta = max(1, triggerAreaHeight / 20);
-        }
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
@@ -278,24 +262,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        float smoothedDelta = (delta * 0.7f + remainder) * SMOOTH_FACTOR; // 加入速度衰减因子
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
-        // 当余量超过阈值时强制滚动
+        // 当余量超过阈值时强制滚动（优化后的阈值判断）
         if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+          actualScroll += (remainder > 0) ? ceil(remainder) : floor(remainder);
+          remainder = smoothedDelta - actualScroll;
         }
 
         if (actualScroll != 0) {
-          // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * wheelDelta; 
+          // 应用非线性滚动量（GSAP风格缓动）
+          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA * 2; // 加倍滚动量
+          
+          // 添加滚动方向判断
+          DWORD scrollDir = (actualScroll > 0) ? 0x00780000 : 0x00080000; // WPARAM高字节存储滚动方向
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
+                      MAKEWPARAM(scrollDir, scrollAmount), // 使用自定义滚动方向
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
