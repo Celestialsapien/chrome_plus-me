@@ -6,13 +6,6 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
-// 增加平滑滚动参数
-#ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
-#define SMOOTH_FACTOR 0.95f      // 提高平滑因子（原0.9）增加动画连贯性
-#define SCROLL_THRESHOLD 0.05f    // 降低滚动阈值（原0.1）提升灵敏度
-#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -232,87 +225,49 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+// 新增滚动处理函数
+bool HandleEdgeScroll(PMOUSEHOOKSTRUCT pmouse) {
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  RECT rect;
+  GetClientRect(hwnd, &rect);
+  
+  // 检测右侧8像素区域
+  if (pmouse->pt.x < rect.right - 8 || rect.right - rect.left < 100) {
+      return false;
+  }
+
+  // 计算滚动百分比
+  int triggerHeight = rect.bottom - rect.top;
+  int scrollPos = (pmouse->pt.y - rect.top) * 100 / triggerHeight;
+  
+  // 执行滚动命令
+  ExecuteCommand(IDC_SCROLL_PERCENT, hwnd, scrollPos);
+  return true;
+}
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
   do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
-    if (wParam == WM_NCMOUSEMOVE) {
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
-    // 新增边缘滚动检测
+    // 新增边缘滚动处理
     if (wParam == WM_MOUSEMOVE) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      RECT rect;
-      GetClientRect(hwnd, &rect);
-      
-      POINT client_pt = pmouse->pt;
-      ScreenToClient(hwnd, &client_pt);
-      
-      if (client_pt.x >= rect.right - 8) {
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta * 0.7f + remainder) * SMOOTH_FACTOR; // 加入速度衰减因子
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动（优化后的阈值判断）
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? ceil(remainder) : floor(remainder);
-          remainder = smoothedDelta - actualScroll;
-        }
-
-        if (actualScroll != 0) {
-          // 应用非线性滚动量（GSAP风格缓动）
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA * 2; // 加倍滚动量
-          
-          // 添加滚动方向判断
-          DWORD scrollDir = (actualScroll > 0) ? 0x00780000 : 0x00080000; // WPARAM高字节存储滚动方向
-          
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(scrollDir, scrollAmount), // 使用自定义滚动方向
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-        
-        lastY = client_pt.y;
-      } else {
-        lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
+      PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+      if (HandleEdgeScroll(pmouse)) {
+        return 1;
       }
-      break;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
       break;
-    }
-
-    if (wParam == WM_LBUTTONUP){
-    HWND hwnd = WindowFromPoint(pmouse->pt);
-    NodePtr TopContainerView = GetTopContainerView(hwnd);
-
-    bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
-
-    if (TopContainerView){
-     }
-
-    // 单击地址栏展开下拉菜单
-    if (isOmniboxFocus){
-      keybd_event(VK_PRIOR,0,0,0);
-     }
     }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
@@ -399,13 +354,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     if (HandleOpenUrlNewTab(wParam) != 0) {
-      return 1;
-    }
-    
-    if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
-      return 1;
-    }
-    if (wParam == VK_NEXT && IsPressed(VK_CONTROL)){
       return 1;
     }
   }
