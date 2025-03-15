@@ -9,7 +9,7 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
+
 #define SMOOTH_FACTOR 0.9f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
@@ -262,11 +262,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 计算滚动滑块与窗口高度比例
         int scrollBarHeight = scrollBarInfo.nPage;  // 滚动滑块高度
         int triggerAreaHeight = rect.bottom;        // 触发区总高度
-        int wheelDelta = CUSTOM_WHEEL_DELTA;
         
+        
+        int wheelDelta = 1;
         if (scrollBarHeight > 0) {
-          // 当滚动条可见时动态计算滚动量
           wheelDelta = max(1, triggerAreaHeight / scrollBarHeight);
+        } else {
+          // 当滚动条不可见时使用窗口高度的1/20作为默认灵敏度
+          wheelDelta = max(1, triggerAreaHeight / 20);
         }
         if (lastY == -1) {
           lastY = client_pt.y;
