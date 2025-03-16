@@ -1,3 +1,4 @@
+#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
