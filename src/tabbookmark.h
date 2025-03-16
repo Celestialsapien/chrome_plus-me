@@ -6,13 +6,6 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
-// 增加平滑滚动参数
-#ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 1    // 保持标准滚动量
-#define SMOOTH_FACTOR 0.95f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
-#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -238,79 +231,30 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
-    if (wParam == WM_NCMOUSEMOVE) {
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
       break;
     }
-
-    // 新增边缘滚动检测
-    if (wParam == WM_MOUSEMOVE) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      RECT rect;
-      GetClientRect(hwnd, &rect);
-      
-      POINT client_pt = pmouse->pt;
-      ScreenToClient(hwnd, &client_pt);
-      
-      if (client_pt.x >= rect.right - 8) {
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-
-        if (actualScroll != 0) {
-          // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
-          
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-        
-        lastY = client_pt.y;
-      } else {
-        lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
-      }
-      break;
-    }
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
       break;
     }
-
     if (wParam == WM_LBUTTONUP){
-    HWND hwnd = WindowFromPoint(pmouse->pt);
-    NodePtr TopContainerView = GetTopContainerView(hwnd);
-
-    bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
-
-    if (TopContainerView){
-     }
-
-    // 单击地址栏展开下拉菜单
-    if (isOmniboxFocus){
-      keybd_event(VK_PRIOR,0,0,0);
-     }
-    }
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      NodePtr TopContainerView = GetTopContainerView(hwnd);
+  
+      bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
+  
+      if (TopContainerView){
+       }
+  
+      // 单击地址栏展开下拉菜单
+      if (isOmniboxFocus){
+        keybd_event(VK_PRIOR,0,0,0);
+       }
+      }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
@@ -398,7 +342,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (HandleOpenUrlNewTab(wParam) != 0) {
       return 1;
     }
-    
     if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
       return 1;
     }
