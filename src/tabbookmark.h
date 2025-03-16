@@ -9,8 +9,8 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-#define CUSTOM_WHEEL_DELTA 3    // 保持标准滚动量
-#define SMOOTH_FACTOR 0.9f        // 提高平滑因子（原0.2）
+int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
@@ -253,6 +253,45 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
+
+      // 新增颜色分析逻辑
+      HDC hdc = GetDC(hwnd);
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
+
+      BYTE* pixels = nullptr;
+      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      HDC hdcMem = CreateCompatibleDC(hdc);
+      SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+
+      // 分析颜色差异
+      int scrollbarHeight = 0;
+      COLORREF prevColor = CLR_INVALID;
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        if (prevColor != CLR_INVALID && abs(color - prevColor) > 0x202020) {
+          scrollbarHeight = rect.bottom - y;
+          break;
+        }
+        prevColor = color;
+      }
+
+      // 计算动态滚动量
+      if (scrollbarHeight > 0) {
+        float ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, (int)(ratio * 2)); // 动态调整滚动量系数
+      }
+
+      // 释放资源
+      DeleteDC(hdcMem);
+      DeleteObject(hBitmap);
+      ReleaseDC(hwnd, hdc);
       
       if (client_pt.x >= rect.right - 8) {
         if (lastY == -1) {
@@ -275,9 +314,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 移除时间因子，调整滚动量计算
-          int scrollAmount = actualScroll * CUSTOM_WHEEL_DELTA; 
-          
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
