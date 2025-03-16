@@ -1,4 +1,3 @@
-#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -10,7 +9,7 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+static int custom_wheel_delta = 1;  // 替换原有宏定义
 #define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
@@ -254,47 +253,52 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-
-      // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
-
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-
-      // 分析颜色差异
-      int scrollbarHeight = 0;
-      COLORREF prevColor = CLR_INVALID;
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
-            scrollbarHeight = rect.bottom - y;
-            break;
-        }
-        prevColor = color;
-      }
-
-      // 计算动态滚动量
-      if (scrollbarHeight > 0) {
-        float ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 2)); // 动态调整滚动量系数
-      }
-
-      // 释放资源
-      DeleteDC(hdcMem);
-      DeleteObject(hBitmap);
-      ReleaseDC(hwnd, hdc);
       
       if (client_pt.x >= rect.right - 8) {
+        // 新增颜色分析逻辑
+        HDC hdcScreen = GetDC(NULL);
+        HDC hdcMem = CreateCompatibleDC(hdcScreen);
+        HBITMAP hBitmap = CreateCompatibleBitmap(hdcScreen, 8, rect.bottom);
+        SelectObject(hdcMem, hBitmap);
+        
+        // 捕获右侧8像素区域
+        BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdcScreen, 
+               rect.right - 8, 0, SRCCOPY);
+        
+        // 分析颜色差异
+        int sliderTop = -1, sliderBottom = -1;
+        COLORREF prevColor = CLR_INVALID;
+        
+        for (int y = 0; y < rect.bottom; y++) {
+          COLORREF pixel = GetPixel(hdcMem, 3, y);  // 取中间列像素
+          
+          // 检测颜色突变点
+          if (prevColor != CLR_INVALID) {
+            int diff = abs(GetRValue(pixel) - GetRValue(prevColor)) +
+                       abs(GetGValue(pixel) - GetGValue(prevColor)) +
+                       abs(GetBValue(pixel) - GetBValue(prevColor));
+            
+            if (diff > 30) {  // 颜色差异阈值
+              if (sliderTop == -1) {
+                sliderTop = y;
+              } else {
+                sliderBottom = y;
+                break;
+              }
+            }
+          }
+          prevColor = pixel;
+        }
+        // 计算滚动比例
+        if (sliderBottom != -1 && sliderTop != -1) {
+          float sliderHeight = sliderBottom - sliderTop;
+          scrollRatio = rect.bottom / sliderHeight;
+          custom_wheel_delta = static_cast<int>(scrollRatio * 100); // 将比例转换为整数百分比
+        }
+        // 释放资源
+        DeleteObject(hBitmap);
+        DeleteDC(hdcMem);
+        ReleaseDC(NULL, hdcScreen);
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
@@ -315,7 +319,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          // 使用动态计算的滚动量
+          int scrollAmount = actualScroll * custom_wheel_delta;  // 替换原有宏
+          
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
