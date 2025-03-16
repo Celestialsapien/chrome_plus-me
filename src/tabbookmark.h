@@ -1,3 +1,7 @@
+#include <windows.h>
+#include <gdiplus.h>
+using namespace Gdiplus;
+#pragma comment(lib, "gdiplus.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
