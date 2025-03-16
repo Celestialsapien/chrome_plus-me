@@ -268,6 +268,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 分析颜色差异
         int sliderTop = -1, sliderBottom = -1;
         COLORREF prevColor = CLR_INVALID;
+        float scrollRatio = 1.0f;  // 添加变量声明并初始化
         
         for (int y = 0; y < rect.bottom; y++) {
           COLORREF pixel = GetPixel(hdcMem, 3, y);  // 取中间列像素
@@ -291,9 +292,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         // 计算滚动比例
         if (sliderBottom != -1 && sliderTop != -1) {
-          float sliderHeight = sliderBottom - sliderTop;
-          scrollRatio = rect.bottom / sliderHeight;
-          custom_wheel_delta = static_cast<int>(scrollRatio * 100); // 将比例转换为整数百分比
+          float sliderHeight = static_cast<float>(sliderBottom - sliderTop);  // 显式类型转换
+          scrollRatio = static_cast<float>(rect.bottom) / sliderHeight;  // 显式类型转换
+          custom_wheel_delta = static_cast<int>(scrollRatio * 100.0f);
         }
         // 释放资源
         DeleteObject(hBitmap);
