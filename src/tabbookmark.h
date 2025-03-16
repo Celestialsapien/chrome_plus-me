@@ -272,23 +272,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      if (prevColor != CLR_INVALID) {
-        // 改进颜色差异计算（考虑亮度差异）
-        long diff = labs(static_cast<long>(color - prevColor));
-        long brightness_diff = abs(
-            ((GetRValue(color)*299 + GetGValue(color)*587 + GetBValue(color)*114) - 
-             (GetRValue(prevColor)*299 + GetGValue(prevColor)*587 + GetBValue(prevColor)*114)) / 1000);
-        
-        // 组合两种差异判断（提高容差阈值）
-        if (diff > 0x404040L || brightness_diff > 40) {  // 原阈值0x202020
+      int scrollbarHeight = 0;
+      COLORREF prevColor = CLR_INVALID;
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x606060) {  // 添加类型转换
             scrollbarHeight = rect.bottom - y;
             break;
         }
-    }
+        prevColor = color;
+      }
 
       // 计算动态滚动量
       if (scrollbarHeight > 0) {
-        float ratio = log(1 + (float)rect.bottom / scrollbarHeight);
+        float ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 2)); // 动态调整滚动量系数
       }
 
