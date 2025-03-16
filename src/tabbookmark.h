@@ -275,9 +275,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && abs(color - prevColor) > 0x202020) {
-          scrollbarHeight = rect.bottom - y;
-          break;
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
+            scrollbarHeight = rect.bottom - y;
+            break;
         }
         prevColor = color;
       }
