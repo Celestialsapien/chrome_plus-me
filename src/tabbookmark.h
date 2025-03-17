@@ -339,15 +339,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         lastY = client_pt.y;
+
+        // 释放资源
+        DeleteDC(hdcMem);
+        DeleteObject(hBitmap);
+        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
       }
-      // 释放资源
-      DeleteDC(hdcMem);
-      DeleteObject(hBitmap);
-      ReleaseDC(hwnd, hdc);
       break;
     }
 
