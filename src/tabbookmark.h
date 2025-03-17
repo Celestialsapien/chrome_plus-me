@@ -277,21 +277,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 改进的对比度检测算法：同时考虑亮度和颜色差异
-        if (prevColor != CLR_INVALID) {
-          // 计算亮度差异（权重公式：Y = 0.2126*R + 0.7152*G + 0.0722*B）
-          float prevLum = 0.2126f * GetRValue(prevColor) + 0.7152f * GetGValue(prevColor) + 0.0722f * GetBValue(prevColor);
-          float currLum = 0.2126f * GetRValue(color) + 0.7152f * GetGValue(color) + 0.0722f * GetBValue(color);
-          float lumDiff = abs(currLum - prevLum);
-          
-          // 计算颜色差异（三通道绝对值之和）
-          long colorDiff = abs(GetRValue(color) - GetRValue(prevColor)) 
-                         + abs(GetGValue(color) - GetGValue(prevColor)) 
-                         + abs(GetBValue(color) - GetBValue(prevColor));
-
-          // 动态阈值：深色模式用较低阈值，浅色模式用较高阈值
-          if (lumDiff > (prevLum > 128 ? 25.0f : 15.0f) || // 亮度阈值
-              colorDiff > (prevLum > 128 ? 0x30 : 0x18)) { // 颜色差异阈值
+        if (prevColor != CLR_INVALID && 
+          (abs(GetRValue(color) - GetRValue(prevColor)) > 0x15 ||
+           abs(GetGValue(color) - GetGValue(prevColor)) > 0x15 ||
+           abs(GetBValue(color) - GetBValue(prevColor)) > 0x15) &&
+          (GetRValue(color) + GetGValue(color) + GetBValue(color)) < 0xC0) {
             if (upperEdge == -1) {
                 upperEdge = y;  // 记录第一个颜色变化点为上沿
             } else {
@@ -299,7 +289,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 break;          // 找到上下沿后退出循环
             }
         }
-      }
         prevColor = color;
       }
       int scrollbarHeight = 0;
