@@ -275,17 +275,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       int upperEdge = -1;  // 新增上沿记录
       int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {
-            if (upperEdge == -1) {
-                upperEdge = y;  // 记录第一个颜色变化点为上沿
-            } else {
-                lowerEdge = y;  // 记录第二个颜色变化点为下沿
-                break;          // 找到上下沿后退出循环
-            }
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
         }
-        prevColor = color;
+      prevColor = color;
       }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
