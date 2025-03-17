@@ -290,8 +290,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.5)); // 动态调整滚动量系数
       }
       char debug[128];
-      sprintf_s(debug, "Height: %d, Ratio: %.2f, Delta: %d\n", 
-               scrollbarHeight, ratio, custom_wheel_delta);
+      sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
+               scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
       OutputDebugStringA(debug);
 
       // 释放资源
