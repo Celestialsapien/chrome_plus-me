@@ -255,12 +255,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
 
-      // 新增颜色分析逻辑
+      // 修改颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
       bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biHeight = -rect.bottom;  // 改为负数，使像素数据从上到下排列
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
       bmi.bmiHeader.biCompression = BI_RGB;
@@ -272,21 +272,30 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int scrollbarHeight = 0;
-      COLORREF prevColor = CLR_INVALID;
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x050505) {  // 添加类型转换
-            scrollbarHeight = rect.bottom - y;
-            break;
-        }
-        prevColor = color;
-      }
+       // 修改颜色检测逻辑，从底部向上检测
+       int scrollbarHeight = 0;
+       COLORREF prevColor = CLR_INVALID;
+       for (int y = rect.bottom - 1; y >= 0; y--) {  // 改为从底部向上遍历
+         int offset = (y * 8) * 4;  // 修正像素偏移计算
+         COLORREF color = RGB(pixels[offset + 2], pixels[offset + 1], pixels[offset + 0]);
+         
+         // 增加颜色差异检测灵敏度
+         if (prevColor != CLR_INVALID && 
+             abs(GetRValue(color) - GetRValue(prevColor)) > 0x10 ||
+             abs(GetBValue(color) - GetBValue(prevColor)) > 0x10 ||
+             abs(GetGValue(color) - GetGValue(prevColor)) > 0x10) {
+           scrollbarHeight = rect.bottom - y;
+           break;
+         }
+         prevColor = color;
+       }
 
       // 计算动态滚动量
       if (scrollbarHeight > 0) {
         float ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 2)); // 动态调整滚动量系数
+      }else {
+        custom_wheel_delta = 1;  // 重置为默认值
       }
 
       // 释放资源
