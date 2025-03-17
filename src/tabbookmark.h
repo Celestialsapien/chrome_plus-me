@@ -304,13 +304,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.66)); // 动态调整滚动量系数
       }
-
-      char debug[128];
-      sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
-               scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
-      OutputDebugStringA(debug);
 
         if (lastY == -1) {
           lastY = client_pt.y;
