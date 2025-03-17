@@ -277,7 +277,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x101010) {
             if (upperEdge == -1) {
                 upperEdge = y;  // 记录第一个颜色变化点为上沿
             } else {
@@ -296,7 +296,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.5)); // 动态调整滚动量系数
       }
 
       char debug[128];
