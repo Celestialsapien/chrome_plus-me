@@ -284,8 +284,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
 
       // 计算动态滚动量
+      float ratio = 0.0f;
       if (scrollbarHeight > 0) {
-        float ratio = (float)rect.bottom / scrollbarHeight;
+        ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
       }
 
