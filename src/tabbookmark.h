@@ -293,10 +293,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       // 计算动态滚动量
       if (scrollbarHeight > 0) {
         float ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 2)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio )); // 动态调整滚动量系数
       }else {
         custom_wheel_delta = 1;  // 重置为默认值
       }
+      // 调试输出（完成后可移除）
+      char debug[128];
+      sprintf_s(debug, "Height: %d, Ratio: %.2f, Delta: %d\n", 
+               scrollbarHeight, ratio, custom_wheel_delta);
+      OutputDebugStringA(debug);
 
       // 释放资源
       DeleteDC(hdcMem);
