@@ -11,10 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.35f        // 降低平滑因子增加跟随性
-#define SCROLL_THRESHOLD 0.05f     // 更低的滚动阈值
-#define MAX_ACCUMULATOR 8.0f       // 新增最大累积量
-#define FRICTION 0.85f             // 新增摩擦力系数
+#define SMOOTH_FACTOR 0.1f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -309,32 +307,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
       }
 
-      // 修改平滑滚动计算逻辑
-      static float velocity = 0.0f;
-      static float accumulator = 0.0f;
-      static ULONGLONG lastTime = GetTickCount64();
-      
-      ULONGLONG currentTime = GetTickCount64();
-      float deltaTime = (currentTime - lastTime) / 1000.0f;
-      lastTime = currentTime;
-
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
-          velocity = 0.0f;
-          accumulator = 0.0f;
         }
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        velocity = velocity * FRICTION + delta * (1 - FRICTION);
-        accumulator += velocity * deltaTime * 60.0f; // 帧率补偿
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-
-        // 限制最大累积量
-        if (abs(accumulator) > MAX_ACCUMULATOR) {
-          accumulator = (accumulator > 0) ? MAX_ACCUMULATOR : -MAX_ACCUMULATOR;
-        }
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
