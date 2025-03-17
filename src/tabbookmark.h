@@ -259,7 +259,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biWidth = 1;
       bmi.bmiHeader.biHeight = rect.bottom;
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
@@ -269,32 +269,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      BitBlt(hdcMem, 0, 0, 1, rect.bottom, hdc, rect.right - 1, 0, SRCCOPY);
 
-      // 分析颜色差异
-      int scrollbarHeight = 0;
+      // 修改2：仅检测单列像素的上下突变点
+      int upperBound = -1;
+      int lowerBound = -1;
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
-        // 修改1：检测所有8列像素中的最大差异
-        int maxDiff = 0;
-        for(int x = 0; x < 8; x++) {
-            COLORREF color = RGB(pixels[y * 8 * 4 + x * 4 + 2], 
-                                pixels[y * 8 * 4 + x * 4 + 1], 
-                                pixels[y * 8 * 4 + x * 4 + 0]);
-            if (prevColor != CLR_INVALID) {
-                int diff = abs(GetRValue(color) - GetRValue(prevColor)) +
-                         abs(GetGValue(color) - GetGValue(prevColor)) +
-                         abs(GetBValue(color) - GetBValue(prevColor));
-                maxDiff = max(maxDiff, diff);
-            }
-            prevColor = color;
+        // 只处理最右侧列（x=0）
+        COLORREF color = RGB(pixels[y * 4 + 2],   // 每行4字节（1像素*32位）
+                            pixels[y * 4 + 1], 
+                            pixels[y * 4 + 0]);
+        if (prevColor != CLR_INVALID) {
+          int diff = abs(GetRValue(color) - GetRValue(prevColor)) +
+                   abs(GetGValue(color) - GetGValue(prevColor)) +
+                   abs(GetBValue(color) - GetBValue(prevColor));
+          
+          if (diff > 0x20) {
+            if (upperBound == -1) upperBound = y;
+            lowerBound = y;  // 记录最后一个突变点
+          }
         }
-        // 修改2：使用综合差异判断
-        if (maxDiff > 0x20) {  // 降低阈值到0x30
-            scrollbarHeight = rect.bottom - y;
-            break;
-        }
+        prevColor = color;
       }
+
+      // 计算滑块高度
+      int scrollbarHeight = (upperBound != -1 && lowerBound != -1) 
+                          ? (lowerBound - upperBound) 
+                          : 0;
 
       // 计算动态滚动量
       float ratio = 0.0f;
