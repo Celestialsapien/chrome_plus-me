@@ -254,8 +254,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-
-      // 新增颜色分析逻辑
+      
+      if (client_pt.x >= rect.right - 8) {
+        // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -303,7 +304,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.75)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
       char debug[128];
@@ -311,12 +312,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
       OutputDebugStringA(debug);
 
-      // 释放资源
-      DeleteDC(hdcMem);
-      DeleteObject(hBitmap);
-      ReleaseDC(hwnd, hdc);
-      
-      if (client_pt.x >= rect.right - 8) {
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
@@ -347,7 +342,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
+        break; // 直接退出避免后续处理
       }
+      // 释放资源
+      DeleteDC(hdcMem);
+      DeleteObject(hBitmap);
+      ReleaseDC(hwnd, hdc);
       break;
     }
 
