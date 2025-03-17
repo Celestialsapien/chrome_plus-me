@@ -276,9 +276,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       int lowerBound = -1;
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
-        // 只处理最右侧列（x=0）
-        COLORREF color = RGB(pixels[y * 4 + 2],   // 每行4字节（1像素*32位）
-                            pixels[y * 4 + 1], 
+        COLORREF color = RGB(pixels[y * 4 + 2], 
+                            pixels[y * 4 + 1],
                             pixels[y * 4 + 0]);
         if (prevColor != CLR_INVALID) {
           int diff = abs(GetRValue(color) - GetRValue(prevColor)) +
@@ -286,17 +285,23 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                    abs(GetBValue(color) - GetBValue(prevColor));
           
           if (diff > 0x20) {
-            if (upperBound == -1) upperBound = y;
-            lowerBound = y;  // 记录最后一个突变点
+            if (upperBound == -1) upperBound = y - 1;  // 记录首次变化的上边界
+            lowerBound = y;  // 持续更新下边界
           }
+        } else {
+          prevColor = color;  // 初始化第一个颜色值
         }
-        prevColor = color;
       }
 
-      // 计算滑块高度
-      int scrollbarHeight = (upperBound != -1 && lowerBound != -1) 
-                          ? (lowerBound - upperBound) 
+      // 修复1：增加有效性检查，确保下边界不小于上边界
+      int scrollbarHeight = (upperBound != -1 && lowerBound != -1 && lowerBound > upperBound)
+                          ? (lowerBound - upperBound)
                           : 0;
+
+      // 修复2：当检测到单行变化时设置最小高度
+      if (scrollbarHeight == 0 && upperBound != -1) {
+        scrollbarHeight = 1;
+      }
 
       // 计算动态滚动量
       float ratio = 0.0f;
