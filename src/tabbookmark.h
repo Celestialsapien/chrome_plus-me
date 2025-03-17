@@ -277,11 +277,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && 
-          (abs(GetRValue(color) - GetRValue(prevColor)) > 0x15 ||
-           abs(GetGValue(color) - GetGValue(prevColor)) > 0x15 ||
-           abs(GetBValue(color) - GetBValue(prevColor)) > 0x15) &&
-          (GetRValue(color) + GetGValue(color) + GetBValue(color)) < 0xC0) {
+        int prevY = static_cast<int>(0.299f * GetRValue(prevColor) + 0.587f * GetGValue(prevColor) + 0.114f * GetBValue(prevColor));
+        int currentY = static_cast<int>(0.299f * GetRValue(color) + 0.587f * GetGValue(color) + 0.114f * GetBValue(color));
+        if (prevColor != CLR_INVALID && abs(currentY - prevY) > 30) {
             if (upperEdge == -1) {
                 upperEdge = y;  // 记录第一个颜色变化点为上沿
             } else {
