@@ -272,15 +272,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int scrollbarHeight = 0;
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
-            scrollbarHeight = rect.bottom - y;
-            break;
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x030303) {
+            if (upperEdge == -1) {
+                upperEdge = y;  // 记录第一个颜色变化点为上沿
+            } else {
+                lowerEdge = y;  // 记录第二个颜色变化点为下沿
+                break;          // 找到上下沿后退出循环
+            }
         }
         prevColor = color;
+      }
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
 
       // 计算动态滚动量
