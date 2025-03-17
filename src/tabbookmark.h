@@ -259,7 +259,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 1;
+      bmi.bmiHeader.biWidth = 8;
       bmi.bmiHeader.biHeight = rect.bottom;
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
@@ -269,48 +269,26 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 1, rect.bottom, hdc, rect.right - 4, 0, SRCCOPY);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
-      // 修改2：仅检测单列像素的上下突变点
-      int upperBound = -1;
-      int lowerBound = -1;
+      // 分析颜色差异
+      int scrollbarHeight = 0;
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 4 + 2], 
-                            pixels[y * 4 + 1],
-                            pixels[y * 4 + 0]);
-        if (prevColor != CLR_INVALID) {
-          int diff = abs(GetRValue(color) - GetRValue(prevColor)) +
-                   abs(GetGValue(color) - GetGValue(prevColor)) +
-                   abs(GetBValue(color) - GetBValue(prevColor));
-          
-          if (diff > 0x20) {
-            if (upperBound == -1) upperBound = y - 1;  // 记录首次变化的上边界
-            lowerBound = y;  // 持续更新下边界
-          }
-        } else {
-          prevColor = color;  // 初始化第一个颜色值
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
+            scrollbarHeight = rect.bottom - y;
+            break;
         }
-      }
-
-      // 修复1：增加有效性检查，确保下边界不小于上边界
-      int scrollbarHeight = (upperBound != -1 && lowerBound != -1 && lowerBound > upperBound)
-                          ? (lowerBound - upperBound)
-                          : 0;
-
-      // 修复2：当检测到单行变化时设置最小高度
-      if (scrollbarHeight == 0 && upperBound != -1) {
-        scrollbarHeight = 1;
+        prevColor = color;
       }
 
       // 计算动态滚动量
-      float ratio = 0.0f;
       if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.5)); // 动态调整滚动量系数
-      } else {  // 新增回退逻辑
-        custom_wheel_delta = max(1, (int)(rect.bottom / 20.0f));  // 按默认比例计算
+        float ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
       }
+
       char debug[128];
       sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
                scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
