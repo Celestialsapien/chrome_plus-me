@@ -290,18 +290,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
             prevColor = color;
         }
         // 修改2：使用综合差异判断
-        if (maxDiff > 0x30) {  // 降低阈值到0x30
+        if (maxDiff > 0x20) {  // 降低阈值到0x30
             scrollbarHeight = rect.bottom - y;
             break;
         }
       }
-      // 新增3：强制设置最小高度
-      if (scrollbarHeight == 0) {
-        scrollbarHeight = rect.bottom > 600 ? 40 : 20;  // 动态最小高度
-    }
-    else if (scrollbarHeight < 20) {
-        scrollbarHeight = 20;
-    }
 
       // 计算动态滚动量
       float ratio = 0.0f;
