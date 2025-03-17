@@ -276,8 +276,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x010101) {  // 添加类型转换
+        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
             scrollbarHeight = rect.bottom - y;
+            if (scrollbarHeight < 20) scrollbarHeight = 20;  // 新增最小高度限制
             break;
         }
         prevColor = color;
@@ -288,6 +289,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 0.5)); // 动态调整滚动量系数
+      } else {  // 新增回退逻辑
+        custom_wheel_delta = max(1, (int)(rect.bottom / 20.0f));  // 按默认比例计算
       }
       char debug[128];
       sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
