@@ -275,14 +275,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       int scrollbarHeight = 0;
       COLORREF prevColor = CLR_INVALID;
       for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        if (prevColor != CLR_INVALID && labs(static_cast<long>(color - prevColor)) > 0x202020) {  // 添加类型转换
+        // 修改1：检测所有8列像素中的最大差异
+        int maxDiff = 0;
+        for(int x = 0; x < 8; x++) {
+            COLORREF color = RGB(pixels[y * 8 * 4 + x * 4 + 2], 
+                                pixels[y * 8 * 4 + x * 4 + 1], 
+                                pixels[y * 8 * 4 + x * 4 + 0]);
+            if (prevColor != CLR_INVALID) {
+                int diff = abs(GetRValue(color) - GetRValue(prevColor)) +
+                         abs(GetGValue(color) - GetGValue(prevColor)) +
+                         abs(GetBValue(color) - GetBValue(prevColor));
+                maxDiff = max(maxDiff, diff);
+            }
+            prevColor = color;
+        }
+        // 修改2：使用综合差异判断
+        if (maxDiff > 0x30) {  // 降低阈值到0x30
             scrollbarHeight = rect.bottom - y;
-            if (scrollbarHeight < 20) scrollbarHeight = 20;  // 新增最小高度限制
             break;
         }
-        prevColor = color;
       }
+      // 新增3：强制设置最小高度
+      if (scrollbarHeight == 0) {
+        scrollbarHeight = rect.bottom > 600 ? 40 : 20;  // 动态最小高度
+    }
+    else if (scrollbarHeight < 20) {
+        scrollbarHeight = 20;
+    }
 
       // 计算动态滚动量
       float ratio = 0.0f;
