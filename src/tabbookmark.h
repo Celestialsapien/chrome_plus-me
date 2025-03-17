@@ -259,7 +259,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 1;
+      bmi.bmiHeader.biWidth = 4;
       bmi.bmiHeader.biHeight = rect.bottom;
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
@@ -269,7 +269,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 1, rect.bottom, hdc, rect.right - 1, 0, SRCCOPY);
+      BitBlt(hdcMem, 0, 0, 4, rect.bottom, hdc, rect.right - 4, 0, SRCCOPY);
 
       // 修改2：仅检测单列像素的上下突变点
       int upperBound = -1;
