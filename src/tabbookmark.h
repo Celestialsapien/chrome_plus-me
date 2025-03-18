@@ -301,10 +301,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
 
       // 计算动态滚动量
-      float ratio = 0.0f;
+      float dynamicSmoothFactor = SMOOTH_FACTOR;
       if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
+        float ratio = (float)rect.bottom / scrollbarHeight;
+        dynamicSmoothFactor *= min(max(ratio * 0.15f, 0.2f), 0.8f);
       }
 
         if (lastY == -1) {
