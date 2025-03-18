@@ -314,36 +314,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        static float velocity = 0;  // 新增速度跟踪
-        // 积分公式：v = v*0.7 + delta*0.3 （保持运动惯性）
-        velocity = velocity * 0.7f + delta * 0.3f;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 应用非线性缩放（小距离增强，大距离抑制）
-        float scaledDelta = (abs(velocity) < 5) ? velocity * 1.2 : velocity * 0.8;
-        // 计算平滑后的增量（修复变量声明）
-        float smoothedDelta = scaledDelta * SMOOTH_FACTOR;  // 新增smoothedDelta声明
+        // 分离整数和小数部分，保留30%作为惯性
+        int actualScroll = static_cast<int>(smoothedDelta * 0.7);  // 70%即时滚动
+        remainder = smoothedDelta * 0.3;  // 30%保留为惯性
         
-        // 累积到余量（新增最小触发量）
-        remainder += scaledDelta * SMOOTH_FACTOR;
-        
-        // 动态调整触发阈值（基于滚动速度）
-        float dynamicThreshold = SCROLL_THRESHOLD * (1 + abs(velocity)/20.0f);
-        
-        // 分离整数和小数部分
-        int actualScroll = 0;  // 提前声明变量
-        if (abs(remainder) >= dynamicThreshold) {
-          actualScroll = static_cast<int>(remainder > 0 ? 
-                          floor(remainder) : ceil(remainder));
-          remainder -= actualScroll;
-          
-          // 应用动态惯性衰减
-          velocity *= 0.5f;
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, actualScroll * custom_wheel_delta),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        // 当余量超过阈值时强制滚动（调整阈值以适应新逻辑）
+        if (abs(remainder) >= SCROLL_THRESHOLD * 0.5) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
         }
 
-        
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
         
         lastY = client_pt.y;
 
