@@ -344,12 +344,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 动态调整滚动量系数（基于滚动条高度和速度）
         float dynamicFactor = min(max(ratio * 0.72f, 0.5f), 2.0f); 
         if(fabs(velocity) > 20) dynamicFactor *= 1.5f; // 快速移动时增强
-
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
+ 
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
@@ -357,7 +352,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * dynamicFactor; // 使用动态系数
+          int scrollAmount = static_cast<int>(actualScroll * dynamicFactor);
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
