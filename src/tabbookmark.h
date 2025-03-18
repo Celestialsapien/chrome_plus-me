@@ -330,19 +330,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         float dynamicThreshold = SCROLL_THRESHOLD * (1 + abs(velocity)/20.0f);
         
         // 分离整数和小数部分
-        
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
+        int actualScroll = 0;  // 提前声明变量
         if (abs(remainder) >= dynamicThreshold) {
-          int actualScroll = static_cast<int>(remainder > 0 ? 
+          actualScroll = static_cast<int>(remainder > 0 ? 
                           floor(remainder) : ceil(remainder));
           remainder -= actualScroll;
           
           // 应用动态惯性衰减
           velocity *= 0.5f;
-          // 发送带加速度的滚动消息（新增时间戳参数）
-          DWORD timestamp = GetTickCount();
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, actualScroll * custom_wheel_delta),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
