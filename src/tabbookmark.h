@@ -320,6 +320,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 应用非线性缩放（小距离增强，大距离抑制）
         float scaledDelta = (abs(velocity) < 5) ? velocity * 1.2 : velocity * 0.8;
+        // 计算平滑后的增量（修复变量声明）
+        float smoothedDelta = scaledDelta * SMOOTH_FACTOR;  // 新增smoothedDelta声明
         
         // 累积到余量（新增最小触发量）
         remainder += scaledDelta * SMOOTH_FACTOR;
@@ -328,7 +330,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         float dynamicThreshold = SCROLL_THRESHOLD * (1 + abs(velocity)/20.0f);
         
         // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
+        
         remainder = smoothedDelta - actualScroll;
         
         // 当余量超过阈值时强制滚动
