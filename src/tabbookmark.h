@@ -299,6 +299,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
+       // 新增时间间隔计算
+       static DWORD lastTime = 0;
+       DWORD currentTime = GetTickCount();
+       float deltaTime = (currentTime - lastTime) / 1000.0f; // 转换为秒
+       lastTime = currentTime;
+ 
+       // 动态调整平滑因子
+       float dynamicSmoothFactor = max(0.2f, min(0.8f, SMOOTH_FACTOR * (1.0f + deltaTime)));
 
       // 计算动态滚动量
       float ratio = 0.0f;
@@ -313,15 +321,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        // 新增指数衰减因子（0.8为衰减系数，可根据需要调整）
-        float decayFactor = 0.8f; 
-        smoothedDelta *= pow(decayFactor, abs(delta));
+        float delta = static_cast<float>(lastY - client_pt.y);
+      float smoothedDelta = (delta + remainder) * dynamicSmoothFactor;
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
+        // 新增微幅移动过滤（小于1像素的累积）
+      if (abs(delta) < 1.0f) {
+        remainder += delta * dynamicSmoothFactor;
+        actualScroll = 0;
+      }
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
@@ -330,10 +340,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 根据滚动条比例动态调整步长
+          float ratioFactor = min(2.0f, max(0.5f, ratio * 0.72f));
+          int scrollAmount = static_cast<int>(actualScroll * ratioFactor);
+          
+          // 分段发送滚动消息
+          while (scrollAmount != 0) {
+            int partialScroll = scrollAmount > 0 ? min(120, scrollAmount) : max(-120, scrollAmount);
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, partialScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            scrollAmount -= partialScroll;
+          }
         }
         
         lastY = client_pt.y;
