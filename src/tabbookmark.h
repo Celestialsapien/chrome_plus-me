@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define EASE_FACTOR 0.8f         // 改为缓动因子
-#define SCROLL_THRESHOLD 0.05f   // 调整滚动阈值
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -314,12 +314,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        // 新增easeInOut缓动曲线计算
-      float t = fabs(delta) / rect.bottom; // 计算标准化进度
-      t = t < 0.5f ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2; // easeInOut公式
-      float easedDelta = (delta > 0 ? 1 : -1) * t * rect.bottom;
-        // 应用缓动因子
-      float smoothedDelta = (easedDelta + remainder) * EASE_FACTOR;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        // 新增指数衰减因子（0.8为衰减系数，可根据需要调整）
+        float decayFactor = 0.8f; 
+        smoothedDelta *= pow(decayFactor, abs(delta));
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
@@ -332,8 +330,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 新增时间参数用于更流畅的滚动
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
