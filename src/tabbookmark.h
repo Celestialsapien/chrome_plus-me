@@ -11,9 +11,10 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define INERTIA_DECAY 0.92f       // 新增惯性衰减系数
-#define VELOCITY_SCALE 0.15f      // 新增速度缩放系数  
-#define MAX_SAMPLES 5             // 新增速度采样窗口
+#define INERTIA_DECAY 0.92f       // 惯性衰减系数
+#define VELOCITY_SCALE 0.15f      // 速度缩放系数
+#define MAX_SAMPLES 5             // 速度采样窗口
+#define SCROLLBAR_CATCH_ZONE 8    // 滚动条捕获区域
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -240,13 +241,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+    static std::deque<std::pair<LONG, DWORD>> velocityQueue; // 速度采样队列
+    static float momentum = 0.0f;      // 动量累积
+    static float lastRemaining = 0.0f; // 最终剩余动量
+    static LONG lastScrollTime = 0;    // 最后滚动时间
     
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
 
-    // 新增边缘滚动检测
+    // 改进后的边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
@@ -255,7 +260,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 8) {
+      if (client_pt.x >= rect.right - SCROLLBAR_CATCH_ZONE) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -304,83 +309,58 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.85)); // 动态调整滚动量系数
       }
+
+      // 速度追踪逻辑
+      DWORD currentTime = GetTickCount();
+      velocityQueue.push_back({client_pt.y, currentTime});
+      
+      // 保持采样窗口新鲜度
+      while (!velocityQueue.empty() && 
+            (currentTime - velocityQueue.front().second) > 1000) {
+        velocityQueue.pop_front();
+      }
+
+      // 计算平均速度
+      float velocity = 0.0f;
+      if (velocityQueue.size() > 1) {
+        auto& oldest = velocityQueue.front();
+        auto& newest = velocityQueue.back();
+        float deltaTime = (newest.second - oldest.second) / 1000.0f;
+        if (deltaTime > 0) {
+          velocity = (oldest.first - newest.first) / deltaTime;
+        }
+      }
+      
+      // 应用惯性模型
+      momentum = (momentum + velocity * VELOCITY_SCALE) * INERTIA_DECAY;
+      float totalScroll = momentum + lastRemaining;
+      
+      // 执行惯性滚动
+      int scrollSteps = 0;
+      while (fabs(totalScroll) >= 1.0f) {
+        int direction = totalScroll > 0 ? 1 : -1;
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                  MAKEWPARAM(0, direction * custom_wheel_delta),
+                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        totalScroll -= direction;
+        momentum *= INERTIA_DECAY;
+        scrollSteps++;
+      }
+      
+      // 记录滚动时间间隔
+      if (scrollSteps > 0) {
+        lastScrollTime = GetTickCount() - lastScrollTime;
+      }
+      
+      lastRemaining = totalScroll; // 保存未消耗的动量
 
       char debug[128];
       sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
                scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
       OutputDebugStringA(debug);
 
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-
-        static std::deque<std::pair<LONG, DWORD>> velocityQueue;
-        static float momentum = 0.0f;    
-        static float lastRemaining = 0.0f;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-
-        // 记录时间戳和位置
-        DWORD currentTime = GetTickCount();
-        velocityQueue.push_back({client_pt.y, currentTime});
-        
-        // 保持采样窗口
-        while (velocityQueue.size() > MAX_SAMPLES) {
-          velocityQueue.pop_front();
-        }
-
-        // 计算平均速度
-        float velocity = 0.0f;
-        if (velocityQueue.size() > 1) {
-          auto& oldest = velocityQueue.front();
-          auto& newest = velocityQueue.back();
-          float deltaTime = (newest.second - oldest.second) / 1000.0f;
-          if (deltaTime > 0) {
-            velocity = (oldest.first - newest.first) / deltaTime;
-          }
-        }
-        
-        // 应用惯性模型
-        momentum = (momentum + velocity * VELOCITY_SCALE) * INERTIA_DECAY;
-        float totalScroll = momentum + lastRemaining;
-        
-        // 执行惯性滚动
-        while (fabs(totalScroll) >= 1.0f) {
-          int direction = totalScroll > 0 ? 1 : -1;
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                    MAKEWPARAM(0, direction * custom_wheel_delta),
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          totalScroll -= direction;
-          momentum *= INERTIA_DECAY; // 每次滚动后衰减
-        }
-        
-        lastRemaining = totalScroll; // 保存未消耗的动量
-        
-        lastY = client_pt.y;
 
         // 释放资源
         DeleteDC(hdcMem);
@@ -389,6 +369,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
+        velocityQueue.clear();
+        momentum = 0.0f;
+        lastRemaining = 0.0f;
         break; // 直接退出避免后续处理
       }
       break;
