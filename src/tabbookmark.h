@@ -11,8 +11,9 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define INERTIA_DECAY 0.92f       // 新增惯性衰减系数
+#define VELOCITY_SCALE 0.15f      // 新增速度缩放系数  
+#define MAX_SAMPLES 5             // 新增速度采样窗口
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -240,8 +241,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
+    
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -320,10 +320,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
+
+        static std::deque<std::pair<LONG, DWORD>> velocityQueue;
+        static float momentum = 0.0f;    
+        static float lastRemaining = 0.0f;
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
@@ -337,6 +343,42 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
+
+        // 记录时间戳和位置
+        DWORD currentTime = GetTickCount();
+        velocityQueue.push_back({client_pt.y, currentTime});
+        
+        // 保持采样窗口
+        while (velocityQueue.size() > MAX_SAMPLES) {
+          velocityQueue.pop_front();
+        }
+
+        // 计算平均速度
+        float velocity = 0.0f;
+        if (velocityQueue.size() > 1) {
+          auto& oldest = velocityQueue.front();
+          auto& newest = velocityQueue.back();
+          float deltaTime = (newest.second - oldest.second) / 1000.0f;
+          if (deltaTime > 0) {
+            velocity = (oldest.first - newest.first) / deltaTime;
+          }
+        }
+        
+        // 应用惯性模型
+        momentum = (momentum + velocity * VELOCITY_SCALE) * INERTIA_DECAY;
+        float totalScroll = momentum + lastRemaining;
+        
+        // 执行惯性滚动
+        while (fabs(totalScroll) >= 1.0f) {
+          int direction = totalScroll > 0 ? 1 : -1;
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                    MAKEWPARAM(0, direction * custom_wheel_delta),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          totalScroll -= direction;
+          momentum *= INERTIA_DECAY; // 每次滚动后衰减
+        }
+        
+        lastRemaining = totalScroll; // 保存未消耗的动量
         
         lastY = client_pt.y;
 
