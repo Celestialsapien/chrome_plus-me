@@ -301,10 +301,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
 
       // 计算动态滚动量
-      float dynamicSmoothFactor = SMOOTH_FACTOR;
+      float ratio = 0.0f;
       if (scrollbarHeight > 0) {
-        float ratio = (float)rect.bottom / scrollbarHeight;
-        dynamicSmoothFactor *= min(max(ratio * 0.15f, 0.2f), 0.8f);
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
@@ -313,6 +313,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // 累积速度的平滑计算（新增速度衰减机制）
+        float dynamicSmoothFactor = SMOOTH_FACTOR;
       static float velocity = 0.0f;
       LONG delta = lastY - client_pt.y;
       velocity += delta * dynamicSmoothFactor * 0.5f;  // 混合当前速度和历史速度
