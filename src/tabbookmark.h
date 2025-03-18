@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
+#define EASE_FACTOR 0.8f         // 改为缓动因子
+#define SCROLL_THRESHOLD 0.05f   // 调整滚动阈值
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -312,17 +312,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 累积速度的平滑计算（新增速度衰减机制）
-        float dynamicSmoothFactor = SMOOTH_FACTOR;
-      static float velocity = 0.0f;
-      LONG delta = lastY - client_pt.y;
-      velocity += delta * dynamicSmoothFactor * 0.5f;  // 混合当前速度和历史速度
-      velocity *= 0.8f;  // 速度衰减系数
+        // 带插值的平滑计算
+        LONG delta = lastY - client_pt.y;
+        // 新增easeInOut缓动曲线计算
+      float t = fabs(delta) / rect.bottom; // 计算标准化进度
+      t = t < 0.5f ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2; // easeInOut公式
+      float easedDelta = (delta > 0 ? 1 : -1) * t * rect.bottom;
+        // 应用缓动因子
+      float smoothedDelta = (easedDelta + remainder) * EASE_FACTOR;
         
-        // 分离有效滚动量（优化小数处理）
-      float effectiveScroll = velocity + remainder;
-      int actualScroll = static_cast<int>(effectiveScroll);
-      remainder = effectiveScroll - actualScroll;
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
@@ -331,13 +332,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 动态调整最终滚动量（新增非线性映射）
-          float nonLinearFactor = 1.0f + abs(velocity) * 0.2f;
-          int scrollAmount = static_cast<int>(actualScroll * custom_wheel_delta * nonLinearFactor);
-          
-          // 发送平滑滚动消息（新增滚动方向优化）
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 新增时间参数用于更流畅的滚动
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount * WHEEL_DELTA),
+                      MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
