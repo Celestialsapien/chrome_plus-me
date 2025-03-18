@@ -240,8 +240,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static LONG lastY = -1;
+    static double remainder = 0;  // 改为双精度提高精度
+    static DWORD lastTick = 0;    // 新增时间记录
+    static double velocity = 0;   // 新增速度累积
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -299,14 +301,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
-       // 新增时间间隔计算
-       static DWORD lastTime = 0;
-       DWORD currentTime = GetTickCount();
-       float deltaTime = (currentTime - lastTime) / 1000.0f; // 转换为秒
-       lastTime = currentTime;
- 
-       // 动态调整平滑因子
-       float dynamicSmoothFactor = max(0.2f, min(0.8f, SMOOTH_FACTOR * (1.0f + deltaTime)));
 
       // 计算动态滚动量
       float ratio = 0.0f;
@@ -320,18 +314,41 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 带插值的平滑计算
-        float delta = static_cast<float>(lastY - client_pt.y);
-      float smoothedDelta = (delta + remainder) * dynamicSmoothFactor;
+        // 带加速度的平滑计算
+        LONG delta = lastY - client_pt.y;
+        DWORD currentTick = GetTickCount();
+        float deltaTime = (currentTick - lastTick) / 1000.0f; // 计算时间差
+        // 当时间差过大时重置状态（超过100ms）
+        if(deltaTime > 0.1f) {
+          velocity = 0;
+          remainder = 0;
+          deltaTime = 0.01f; // 设置最小时间差
+        }
+        // 计算带加速度的速度值（物理模型）
+        float acceleration = delta * 0.5f; // 加速度系数
+        velocity = velocity * 0.9f + acceleration; // 速度累积带衰减
+        
+        // 应用非线性平滑（立方曲线处理小位移）
+        double smoothedDelta = 0;
+        if(fabs(velocity) < 5) { // 小速度时使用立方曲线
+            smoothedDelta = pow(velocity / 5.0, 3) * 5.0;
+        } else {
+            smoothedDelta = velocity;
+        }
+        
+        // 计算最终滚动量（带余量累积）
+        double totalScroll = (smoothedDelta + remainder) * SMOOTH_FACTOR;
+        int actualScroll = static_cast<int>(round(totalScroll));
+        remainder = totalScroll - actualScroll;
+
+        // 动态调整滚动量系数（基于滚动条高度和速度）
+        float dynamicFactor = min(max(ratio * 0.72f, 0.5f), 2.0f); 
+        if(fabs(velocity) > 20) dynamicFactor *= 1.5f; // 快速移动时增强
+
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
-        // 新增微幅移动过滤（小于1像素的累积）
-      if (abs(delta) < 1.0f) {
-        remainder += delta * dynamicSmoothFactor;
-        actualScroll = 0;
-      }
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
@@ -340,21 +357,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 根据滚动条比例动态调整步长
-          float ratioFactor = min(2.0f, max(0.5f, ratio * 0.72f));
-          int scrollAmount = static_cast<int>(actualScroll * ratioFactor);
-          
-          // 分段发送滚动消息
-          while (scrollAmount != 0) {
-            int partialScroll = scrollAmount > 0 ? min(120, scrollAmount) : max(-120, scrollAmount);
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, partialScroll),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            scrollAmount -= partialScroll;
-          }
+          int scrollAmount = actualScroll * dynamicFactor; // 使用动态系数
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
+        lastTick = currentTick; // 更新时间戳
 
         // 释放资源
         DeleteDC(hdcMem);
