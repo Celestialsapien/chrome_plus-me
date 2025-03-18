@@ -283,7 +283,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x050505 : 0x303030;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -307,6 +307,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
+      char debug[128];
+      sprintf_s(debug, "Height: %d, TotalHeight: %d, Ratio: %.2f, Delta: %d\n", 
+               scrollbarHeight, rect.bottom, ratio, custom_wheel_delta);
+      OutputDebugStringA(debug);
+
         if (lastY == -1) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
@@ -314,22 +319,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        float smoothedDelta = delta + remainder;
-        // 动态调整阈值：根据滚动速度自动适应
-        float dynamicThreshold = SCROLL_THRESHOLD * (1 + abs(delta)/5.0f);
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
-        // 实时应用余量（当有余量且鼠标在移动时）
-        if (abs(remainder) >= dynamicThreshold && delta != 0) {
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
-          remainder = 0;  // 重置余量而不是保留部分
+          remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
