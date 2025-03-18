@@ -1,4 +1,5 @@
 #pragma comment(lib, "gdi32.lib")
+#include <deque>
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -367,8 +368,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
       } else {
-        lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
         velocityQueue.clear();
         momentum = 0.0f;
         lastRemaining = 0.0f;
