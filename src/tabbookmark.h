@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.95f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -322,8 +322,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+          int direction = (remainder > 0) ? 1 : -1;
+          actualScroll += direction;
+          remainder -= direction;
+          remainder *= 0.8f;  // 新增余量衰减系数，避免过度积累
         }
 
         if (actualScroll != 0) {
