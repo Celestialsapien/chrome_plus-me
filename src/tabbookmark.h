@@ -312,26 +312,31 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        // 累积速度的平滑计算（新增速度衰减机制）
+      static float velocity = 0.0f;
+      LONG delta = lastY - client_pt.y;
+      velocity += delta * dynamicSmoothFactor * 0.5f;  // 混合当前速度和历史速度
+      velocity *= 0.8f;  // 速度衰减系数
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
+        // 分离有效滚动量（优化小数处理）
+      float effectiveScroll = velocity + remainder;
+      int actualScroll = static_cast<int>(effectiveScroll);
+      remainder = effectiveScroll - actualScroll;
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
-          int direction = (remainder > 0) ? 1 : -1;
-          actualScroll += direction;
-          remainder -= direction;
-          remainder *= 0.8f;  // 新增余量衰减系数，避免过度积累
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          // 动态调整最终滚动量（新增非线性映射）
+          float nonLinearFactor = 1.0f + abs(velocity) * 0.2f;
+          int scrollAmount = static_cast<int>(actualScroll * custom_wheel_delta * nonLinearFactor);
+          
+          // 发送平滑滚动消息（新增滚动方向优化）
           SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
+                      MAKEWPARAM(0, scrollAmount * WHEEL_DELTA),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
