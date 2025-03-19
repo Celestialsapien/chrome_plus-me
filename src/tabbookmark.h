@@ -274,7 +274,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 计算实时速度
         if (deltaTime > 0) {
-          scrollAnimator.velocity = static_cast<float>(client_pt.y - scrollAnimator.lastY) / deltaTime;
+          scrollAnimator.velocity = static_cast<float>(client_pt.y - scrollAnimator.lastY) / static_cast<float>(deltaTime);
         }
         scrollAnimator.lastY = client_pt.y;
         scrollAnimator.lastTime = now;
@@ -333,7 +333,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 应用滚动
         LONG delta = client_pt.y - lastY;
-        scrollAnimator.targetY += static_cast<float>(delta) * custom_wheel_delta;
+        scrollAnimator.targetY += static_cast<float>(delta) * static_cast<float>(custom_wheel_delta);
         
         
         
