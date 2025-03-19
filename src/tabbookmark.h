@@ -240,12 +240,13 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-
+ScrollAnimator scrollAnimator;
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
+  HWND hwnd = nullptr;
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
@@ -321,12 +322,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // 更新滚动动画逻辑
-        const ULONGLONG now = GetTickCount64();
-        const float deltaTime = static_cast<float>(now - scrollAnimator.lastTime);
-        
-        scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
-        scrollAnimator.lastY = scrollAnimator.targetY;
-        scrollAnimator.lastTime = now;
+      const ULONGLONG now = GetTickCount64();
+      const float deltaTime = static_cast<float>(now - scrollAnimator.lastTime);
+      
+      scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+      scrollAnimator.lastY = scrollAnimator.targetY;
+      scrollAnimator.lastTime = now;
 
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
@@ -361,8 +362,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
       break;
     }
-    // 处理定时器消息以实现平滑滚动
+    // 在WM_TIMER处理中初始化hwnd
     if (wParam == WM_TIMER) {
+      hwnd = WindowFromPoint(pmouse->pt);
+      if (!hwnd) break;
+      
       RECT rect;
       GetClientRect(hwnd, &rect);
       
