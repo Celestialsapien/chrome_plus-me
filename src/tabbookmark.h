@@ -339,29 +339,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     MAKEWPARAM(0, scrollAmount),
                     MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
       }
-
-    } else {
-      // 离开滚动区域时启动惯性衰减
-      if (inertia_scrolling) {
-        velocity *= 0.9f;  // 惯性衰减系数
-        if (abs(velocity) < 0.1f) {  // 停止阈值
-            inertia_scrolling = false;
-            velocity = 0.0f;
-            lastY = -1;
-            remainder = 0;
-        } else {
-            // 继续处理剩余惯性
-            int actualScroll = static_cast<int>(velocity);
-            velocity -= actualScroll;
-            if (actualScroll != 0) {
-                SendMessage(hwnd, WM_MOUSEWHEEL, 
-                          MAKEWPARAM(0, actualScroll * custom_wheel_delta),
-                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            }
-        }
-      }
-      break;
-    }
         
         lastY = client_pt.y;
 
