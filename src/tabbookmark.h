@@ -242,8 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static ULONGLONG lastTime = 0;  // 新增时间戳记录
-    static float velocity = 0.0f;   // 新增速度跟踪
+    static float velocity = 0.0f;  // 新增速度变量
+    static bool inertia_scrolling = false;  // 新增惯性滚动状态标志
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -316,56 +316,52 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        ULONGLONG currentTime = GetTickCount64();
-        float deltaTime = (currentTime - lastTime) / 1000.0f; // 计算时间差
-        lastTime = currentTime;
-
-        // 使用改进的立方曲线增强小幅度移动灵敏度
-        float targetVelocity = delta * (1.0f + delta*delta*0.01f); // 立方放大微小移动
-        velocity = velocity * exp(-deltaTime * 12.0f) + targetVelocity * (1 - exp(-deltaTime * 12.0f));
+        // 惯性滚动核心逻辑
+        velocity = (delta + velocity) * SMOOTH_FACTOR;  // 累积速度
         
-        // 应用动态响应曲线
-        float responseCurve = 1.0f - exp(-fabs(velocity) * 2.0f);
-        float smoothedDelta = velocity * SMOOTH_FACTOR * responseCurve;
-        smoothedDelta += remainder;
-
         // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-
-        // 新增死区消除处理
-        if (fabs(velocity) < 0.05f) {
-            velocity = 0.0f; // 消除微小速度残留
-        }
-
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-        // 增强惯性滚动响应
-        if (actualScroll == 0 && fabs(velocity) > 0.05f) { // 降低惯性触发阈值
-          velocity *= 0.95f; // 提高惯性保持系数
-          remainder += velocity * deltaTime * 2.0f; // 增强惯性效果
-      }
-      // 新增边缘滚动标记优化
-      static bool wasInScrollZone = false;
-      if (client_pt.x >= rect.right - 8) {
-          if (!wasInScrollZone) {
-              lastY = client_pt.y; // 重置起始位置
-              remainder = 0;       // 重置剩余量
-              wasInScrollZone = true;
-          }
-      } else {
-          wasInScrollZone = false;
+        int actualScroll = static_cast<int>(velocity);
+        velocity -= actualScroll;  // 保持剩余速度
+        
+        // 当速度绝对值大于阈值时保持滚动
+        if (abs(velocity) > SCROLL_THRESHOLD) {
+          inertia_scrolling = true;
+      } else if (inertia_scrolling) {
+          // 惯性衰减
+          velocity *= 0.9f;  // 速度衰减系数
+          actualScroll = static_cast<int>(velocity);
+          velocity -= actualScroll;
       }
 
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      if (actualScroll != 0) {
+        int scrollAmount = actualScroll * custom_wheel_delta;
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                    MAKEWPARAM(0, scrollAmount),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      }
+
+    } else {
+      // 离开滚动区域时启动惯性衰减
+      if (inertia_scrolling) {
+        velocity *= 0.9f;  // 惯性衰减系数
+        if (abs(velocity) < 0.1f) {  // 停止阈值
+            inertia_scrolling = false;
+            velocity = 0.0f;
+            lastY = -1;
+            remainder = 0;
+        } else {
+            // 继续处理剩余惯性
+            int actualScroll = static_cast<int>(velocity);
+            velocity -= actualScroll;
+            if (actualScroll != 0) {
+                SendMessage(hwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, actualScroll * custom_wheel_delta),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            }
         }
+      }
+      break;
+    }
         
         lastY = client_pt.y;
 
