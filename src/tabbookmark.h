@@ -269,7 +269,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 16) {
+      if (client_pt.x >= rect.right - 8) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -322,21 +322,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
       if (lastY != -1) {
         LONG delta = lastY - client_pt.y;
-        if (delta != 0) {  // 增加delta判断
+        if (delta != 0) {
             const DWORD now = GetTickCount();
             const DWORD deltaTime = now - scrollAnimator.lastTime;
             
+            // 计算速度
             scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
             scrollAnimator.lastY = scrollAnimator.targetY;
-            scrollAnimator.targetY += delta * custom_wheel_delta;
+            
+            // 计算目标位置
+            float scrollAmount = delta * custom_wheel_delta;
+            scrollAnimator.targetY += scrollAmount;
             scrollAnimator.lastTime = now;
 
-            // 立即触发一次滚动
+            // 立即触发滚动
             SCROLLINFO si = { sizeof(SCROLLINFO) };
             si.fMask = SIF_POS;
             GetScrollInfo(hwnd, SB_VERT, &si);
-            si.nPos += static_cast<int>(delta * custom_wheel_delta);
+            
+            // 计算新的滚动位置
+            int newPos = si.nPos + static_cast<int>(scrollAmount);
+            newPos = max(0, min(newPos, si.nMax - (int)rect.bottom));
+            
+            // 设置滚动位置
+            si.nPos = newPos;
             SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            
+            // 发送滚动消息
+            SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, newPos), 0);
         }
     }
     lastY = client_pt.y;
@@ -354,8 +367,15 @@ if (!scrollAnimator.raf) {
           float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
           
           if (std::abs(dy) > 0.5f) {
-              si.nPos += static_cast<int>(dy);
+              int newPos = current + dy;
+              newPos = max(0, min(newPos, si.nMax - (int)rect.bottom));
+              
+              si.nPos = newPos;
               SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+              
+              // 发送滚动消息
+              SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, newPos), 0);
+              
               scrollAnimator.velocity *= scrollAnimator.decay;
               std::this_thread::sleep_for(std::chrono::milliseconds(16));
           } else {
