@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 1.5f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -283,7 +283,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x050505 : 0x404040;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -316,21 +316,21 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
+         // 分离整数和小数部分
+         int actualScroll = static_cast<int>(smoothedDelta);
+         remainder = smoothedDelta - actualScroll;  // 保留所有小数部分
         
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+         if (actualScroll == 0 && abs(remainder) > 0) {
+          // 当余量符号与当前移动方向一致时增强累积效果
+          remainder *= (delta > 0) ? 1.2f : 1.2f;
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          int scrollAmount = actualScroll * custom_wheel_delta;
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          remainder *= 0.6f;  // 滚动后减弱余量影响
         }
         
         lastY = client_pt.y;
