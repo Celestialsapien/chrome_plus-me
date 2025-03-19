@@ -304,7 +304,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 1.4)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 1.5)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
@@ -330,7 +330,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          remainder *= 0.6f;  // 滚动后减弱余量影响
+          remainder *= 0.3f;  // 滚动后减弱余量影响
         }
         
         lastY = client_pt.y;
