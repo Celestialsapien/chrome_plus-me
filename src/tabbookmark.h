@@ -320,27 +320,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         float deltaTime = (currentTime - lastTime) / 1000.0f; // 计算时间差
         lastTime = currentTime;
 
-        // 使用指数衰减平滑算法替代线性插值
-        float targetVelocity = delta * 0.5f; // 灵敏度系数
-        velocity = velocity * exp(-deltaTime * 8.0f) + targetVelocity * (1 - exp(-deltaTime * 8.0f));
+        // 使用改进的立方曲线增强小幅度移动灵敏度
+        float targetVelocity = delta * (1.0f + delta*delta*0.01f); // 立方放大微小移动
+        velocity = velocity * exp(-deltaTime * 12.0f) + targetVelocity * (1 - exp(-deltaTime * 12.0f));
         
-        // 应用非线性曲线（二次缓动）
-        float smoothedDelta = velocity * SMOOTH_FACTOR;
+        // 应用动态响应曲线
+        float responseCurve = 1.0f - exp(-fabs(velocity) * 2.0f);
+        float smoothedDelta = velocity * SMOOTH_FACTOR * responseCurve;
         smoothedDelta += remainder;
 
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
-        
+
+        // 新增死区消除处理
+        if (fabs(velocity) < 0.05f) {
+            velocity = 0.0f; // 消除微小速度残留
+        }
+
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
         }
-        // 新增惯性滚动支持
-        if (actualScroll == 0 && fabs(velocity) > 0.1f) {
-          velocity *= 0.9f; // 惯性衰减系数
-          remainder += velocity * deltaTime;
+        // 增强惯性滚动响应
+        if (actualScroll == 0 && fabs(velocity) > 0.05f) { // 降低惯性触发阈值
+          velocity *= 0.95f; // 提高惯性保持系数
+          remainder += velocity * deltaTime * 2.0f; // 增强惯性效果
       }
       // 新增边缘滚动标记优化
       static bool wasInScrollZone = false;
