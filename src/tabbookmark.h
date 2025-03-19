@@ -283,7 +283,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x050505 : 0x404040;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -304,7 +304,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
