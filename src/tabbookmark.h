@@ -3,31 +3,20 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <thread>  // 新增线程支持
-#include <chrono>  // 新增时间支持
 
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
-// 增加平滑滚动参数
-#ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
-#endif
-// 新增ScrollAnimator结构体
 struct ScrollAnimator {
   float targetY = 0;
   float lastY = 0;
   float velocity = 0;
-  DWORD lastTime = 0;
+  ULONGLONG lastTime = 0;
   float ease = 0.1f;
   float decay = 0.9f;
   bool raf = false;
 };
-
-ScrollAnimator scrollAnimator;
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -320,73 +309,40 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
-      if (lastY != -1) {
-        LONG delta = lastY - client_pt.y;
-        if (delta != 0) {
-            const DWORD now = GetTickCount();
-            const DWORD deltaTime = (deltaTime != 0) ? deltaTime : 16;  // 修复bool类型使用问题
-            
-            // 计算速度
-            scrollAnimator.velocity = static_cast<float>(scrollAnimator.targetY - scrollAnimator.lastY) / deltaTime;  // 显式类型转换
-            scrollAnimator.lastY = scrollAnimator.targetY;
-            
-            // 计算目标位置
-            float scrollAmount = static_cast<float>(delta) * custom_wheel_delta;  // 显式类型转换
-            scrollAnimator.targetY += scrollAmount;
-            scrollAnimator.lastTime = now;
-    
-            // 立即触发滚动
-            SCROLLINFO si = { sizeof(SCROLLINFO) };
-            si.fMask = SIF_POS;
-            GetScrollInfo(hwnd, SB_VERT, &si);
-            
-            // 计算新的滚动位置
-            int newPos = si.nPos + static_cast<int>(scrollAmount);
-            newPos = max(0, min(newPos, si.nMax - (int)rect.bottom));
-            
-            // 设置滚动位置
-            si.nPos = newPos;
-            SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-            
-            // 发送滚动消息
-            SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, newPos), 0);
+
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
         }
-    }
-    lastY = client_pt.y;
+        
+        // 更新滚动动画逻辑
+        const ULONGLONG now = GetTickCount64();
+        const float deltaTime = static_cast<float>(now - scrollAnimator.lastTime);
+        
+        scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+        scrollAnimator.lastY = scrollAnimator.targetY;
+        scrollAnimator.lastTime = now;
 
-// 启动平滑滚动动画
-if (!scrollAnimator.raf) {
-  scrollAnimator.raf = true;
-  std::thread([hwnd, rect = rect]() {  // 显式捕获rect
-      while (true) {
-          SCROLLINFO si = { sizeof(SCROLLINFO) };
-          si.fMask = SIF_POS;
-          GetScrollInfo(hwnd, SB_VERT, &si);
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
+
+        if (actualScroll != 0) {
+          scrollAnimator.targetY += actualScroll * custom_wheel_delta;
           
-          float current = static_cast<float>(si.nPos);
-          float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
-          
-          if (std::abs(dy) > 0.5f) {
-              int newPos = current + dy;
-              newPos = max(0, min(newPos, si.nMax - (int)rect.bottom));
-              
-              si.nPos = newPos;
-              SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-              
-              // 发送滚动消息
-              SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, newPos), 0);
-              
-              scrollAnimator.velocity *= scrollAnimator.decay;
-              std::this_thread::sleep_for(std::chrono::milliseconds(16));
-          } else {
-              scrollAnimator.raf = false;
-              break;
+          if (!scrollAnimator.raf) {
+            scrollAnimator.raf = true;
+            SetTimer(hwnd, 1, 16, nullptr); // 使用定时器模拟requestAnimationFrame
           }
-      }
-  }).detach();
-}
-
-
+        }
+        
         lastY = client_pt.y;
 
         // 释放资源
@@ -397,6 +353,33 @@ if (!scrollAnimator.raf) {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
+      }
+      break;
+    }
+    // 处理定时器消息以实现平滑滚动
+    if (wParam == WM_TIMER) {
+      RECT rect;
+      GetClientRect(hwnd, &rect);
+      
+      SCROLLINFO si;
+      si.cbSize = sizeof(SCROLLINFO);
+      si.fMask = SIF_POS;
+      GetScrollInfo(hwnd, SB_VERT, &si);
+      
+      float current = static_cast<float>(si.nPos);
+      float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
+      
+      si.nPos = static_cast<int>(current + dy);
+      SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+      SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, si.nPos), 0);
+      
+      scrollAnimator.velocity *= scrollAnimator.decay;
+      
+      if (abs(dy) > 0.5f) {
+        SetTimer(hwnd, 1, 16, nullptr);
+      } else {
+        KillTimer(hwnd, 1);
+        scrollAnimator.raf = false;
       }
       break;
     }
