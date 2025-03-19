@@ -232,18 +232,15 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-
 struct ScrollAnimator {
   float targetY = 0;
   float lastY = 0;
   float velocity = 0;
   DWORD lastTime = 0;
-  float ease = 0.1f;
-  float decay = 0.9f;
-  bool animating = false;
-};
-
-ScrollAnimator scrollAnimator;
+  int raf = 0;
+  const float ease = 0.1f;
+  const float decay = 0.9f;
+} scrollAnimator;
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
@@ -253,7 +250,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    
+    static float remainder = 0;  // 新增剩余量用于平滑滚动
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -268,16 +265,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
-        // 计算时间差和速度
-        DWORD now = GetTickCount();
-        DWORD deltaTime = now - scrollAnimator.lastTime;
-        
-        // 计算实时速度
-        if (deltaTime > 0) {
-          scrollAnimator.velocity = static_cast<float>(client_pt.y - scrollAnimator.lastY) / static_cast<float>(deltaTime);
-        }
-        scrollAnimator.lastY = client_pt.y;
-        scrollAnimator.lastTime = now;
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -329,44 +316,43 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
+        }
         
-        
+        // 计算实时速度
+        const DWORD now = GetTickCount();
+        const DWORD deltaTime = now - scrollAnimator.lastTime;
+        scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+        scrollAnimator.lastY = scrollAnimator.targetY;
+        scrollAnimator.lastTime = now;
+
         // 应用滚动
-        LONG delta = client_pt.y - lastY;
-        scrollAnimator.targetY += static_cast<float>(delta) * static_cast<float>(custom_wheel_delta);
-        
-        
-        
-        
+        float delta = (lastY - client_pt.y) * SMOOTH_FACTOR;
+        scrollAnimator.targetY += delta;
 
         // 启动动画循环
-        if (!scrollAnimator.animating) {
-          scrollAnimator.animating = true;
-          SetTimer(hwnd, 1, 16, [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
-              // 计算当前滚动位置
-              SCROLLINFO si = {sizeof(SCROLLINFO), SIF_POS};
-              GetScrollInfo(hwnd, SB_VERT, &si);
-              float current = static_cast<float>(si.nPos);
-              
-              // 计算滚动增量
-              float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
-              
-              // 应用滚动
-              si.nPos += static_cast<int>(dy);
-              SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-              
-              // 速度衰减
-              scrollAnimator.velocity *= scrollAnimator.decay;
-              
-              // 判断是否继续动画
-              if (fabs(dy) > 0.5f) {
-                  scrollAnimator.targetY += scrollAnimator.velocity;
-              } else {
-                  KillTimer(hwnd, 1);
-                  scrollAnimator.animating = false;
-              }
-          });
-      }
+        if (!scrollAnimator.raf) {
+            scrollAnimator.raf = 1; // 使用1表示动画正在运行
+            std::thread([hwnd]() {
+                while (scrollAnimator.raf) {
+                    const int current = GetScrollPos(hwnd, SB_VERT);
+                    const float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
+
+                    SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, current + dy), 0);
+
+                    // 速度衰减
+                    scrollAnimator.velocity *= scrollAnimator.decay;
+
+                    if (fabs(dy) <= 0.5f) {
+                        scrollAnimator.raf = 0;
+                        break;
+                    }
+                    Sleep(16); // 模拟requestAnimationFrame的16ms间隔
+                }
+            }).detach();
+        }
         
         lastY = client_pt.y;
 
