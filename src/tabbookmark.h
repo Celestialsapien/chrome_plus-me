@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -233,6 +233,18 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+struct ScrollAnimator {
+  float targetY = 0;
+  float lastY = 0;
+  float velocity = 0;
+  DWORD lastTime = 0;
+  float ease = 0.1f;
+  float decay = 0.9f;
+  bool animating = false;
+};
+
+ScrollAnimator scrollAnimator;
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -241,7 +253,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
+    
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -256,6 +268,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 8) {
+        // 计算时间差和速度
+        DWORD now = GetTickCount();
+        DWORD deltaTime = now - scrollAnimator.lastTime;
+        
+        // 计算实时速度
+        if (deltaTime > 0) {
+            scrollAnimator.velocity = (client_pt.y - scrollAnimator.lastY) / deltaTime;
+        }
+        scrollAnimator.lastY = client_pt.y;
+        scrollAnimator.lastTime = now;
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -304,34 +326,47 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
         
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分，保留30%作为惯性
-        int actualScroll = static_cast<int>(smoothedDelta * 0.7);  // 70%即时滚动
-        remainder = smoothedDelta * 0.3;  // 30%保留为惯性
+        // 应用滚动
+        LONG delta = client_pt.y - lastY;
+        scrollAnimator.targetY += delta * custom_wheel_delta;
         
-        // 当余量超过阈值时强制滚动（调整阈值以适应新逻辑）
-        if (abs(remainder) >= SCROLL_THRESHOLD * 0.5) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
+        
+        
+        
 
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
+        // 启动动画循环
+        if (!scrollAnimator.animating) {
+          scrollAnimator.animating = true;
+          SetTimer(hwnd, 1, 16, [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
+              // 计算当前滚动位置
+              SCROLLINFO si = {sizeof(SCROLLINFO), SIF_POS};
+              GetScrollInfo(hwnd, SB_VERT, &si);
+              float current = static_cast<float>(si.nPos);
+              
+              // 计算滚动增量
+              float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
+              
+              // 应用滚动
+              si.nPos += static_cast<int>(dy);
+              SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+              
+              // 速度衰减
+              scrollAnimator.velocity *= scrollAnimator.decay;
+              
+              // 判断是否继续动画
+              if (fabs(dy) > 0.5f) {
+                  scrollAnimator.targetY += scrollAnimator.velocity;
+              } else {
+                  KillTimer(hwnd, 1);
+                  scrollAnimator.animating = false;
+              }
+          });
+      }
         
         lastY = client_pt.y;
 
