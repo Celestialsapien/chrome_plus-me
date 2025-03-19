@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -304,33 +304,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 1.5)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
           lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
+          //remainder = 0;  // 重置剩余量
         }
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-         // 分离整数和小数部分
-         int actualScroll = static_cast<int>(smoothedDelta);
-         remainder = smoothedDelta - actualScroll;  // 保留所有小数部分
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
         
-         if (actualScroll == 0 && abs(remainder) > 0) {
-          // 当余量符号与当前移动方向一致时增强累积效果
-          remainder *= (delta > 0) ? 1.2f : 1.2f;
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          remainder *= 0.3f;  // 滚动后减弱余量影响
         }
         
         lastY = client_pt.y;
@@ -341,7 +341,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
+        //remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
       }
       break;
