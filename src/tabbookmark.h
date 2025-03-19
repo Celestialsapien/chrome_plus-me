@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.8f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.02f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,8 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static DWORD lastTime = 0;  // 新增时间记录
-    const float decayFactor = 0.3f; // 指数衰减系数 (0.2~0.5)
+    static ULONGLONG lastTime = 0;  // 改用高精度时间戳
+    const float decayFactor = 0.25f; // 降低衰减系数增强惯性
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -314,28 +314,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-         // 指数平滑计算（包含时间因子）
+         // 改进的平滑计算
          LONG delta = lastY - client_pt.y;
-         DWORD currentTime = GetTickCount();
-         float timeFactor = (currentTime - lastTime) / 16.0f; // 按60FPS标准化
-         timeFactor = std::clamp(timeFactor, 0.5f, 2.0f);  // 限制时间因子范围
-         // 指数加权平滑公式: R_t = α*ΔY + (1-α)*R_{t-1}
-         remainder = decayFactor * delta * timeFactor + (1 - decayFactor) * remainder;
+         ULONGLONG currentTime = GetTickCount64();
+         float timeFactor = (currentTime - lastTime) / 15.0f; // 精确到毫秒级
         
-        // 直接取整并保持余量
-        int actualScroll = static_cast<int>(remainder);
-        remainder -= actualScroll;
+        // 带最小移动量检测的指数平滑
+        if (abs(delta) > 0) {
+          // 二阶平滑公式：R_t = α*(ΔY + R_{t-1}) + (1-α)*R_{t-2}
+          remainder = decayFactor * (delta * timeFactor + remainder) 
+                    + (1 - decayFactor) * remainder;
+      }
 
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
+      // 动态调整灵敏度
+      float sensitivity = std::clamp(1.0f - (scrollbarHeight * 0.01f), 0.5f, 2.0f);
+      int actualScroll = static_cast<int>(remainder * sensitivity);
+      
+      // 渐进式余量处理
+      if (abs(actualScroll) > 0) {
+          remainder -= actualScroll;
+          int scrollAmount = std::clamp(actualScroll * custom_wheel_delta, -48, 48);
           
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                     MAKEWPARAM(0, scrollAmount),
                     MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-        
-        lastY = client_pt.y;
-        lastTime = currentTime;  // 更新时间记录
+      }
+
+      lastY = client_pt.y;
+      lastTime = currentTime;
 
         // 释放资源
         DeleteDC(hdcMem);
