@@ -3,7 +3,6 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <mutex>  // 添加互斥锁支持
 
 HHOOK mouse_hook = nullptr;
 
@@ -238,11 +237,45 @@ struct ScrollAnimator {
   float lastY = 0;
   float velocity = 0;
   DWORD lastTime = 0;
-  int raf = 0;
-  const float ease = 0.1f;
-  const float decay = 0.9f;
-  std::mutex mtx;  // 添加互斥锁
-} scrollAnimator;
+  float ease = 0.1f;
+  float decay = 0.9f;
+  bool raf = false;
+};
+
+ScrollAnimator scrollAnimator;
+
+void SmoothScroll(HWND hwnd, int delta) {
+  if (!scrollAnimator.raf) {
+      scrollAnimator.raf = true;
+      scrollAnimator.targetY += delta;
+      
+      std::thread([hwnd]() {
+          while (true) {
+              RECT rect;
+              GetClientRect(hwnd, &rect);
+              int currentY = GetScrollPos(hwnd, SB_VERT);
+              
+              float dy = (scrollAnimator.targetY - currentY) * scrollAnimator.ease;
+              
+              // 更新滚动位置
+              SetScrollPos(hwnd, SB_VERT, currentY + dy, TRUE);
+              SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, currentY + dy), 0);
+              
+              // 更新速度
+              scrollAnimator.velocity *= scrollAnimator.decay;
+              
+              // 停止条件
+              if (fabs(dy) <= 0.5f) {
+                  scrollAnimator.raf = false;
+                  break;
+              }
+              
+              // 16ms 约等于 60fps
+              Sleep(16);
+          }
+      }).detach();
+  }
+}
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
@@ -323,42 +356,22 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        std::lock_guard<std::mutex> lock(scrollAnimator.mtx);  // 加锁
-                    
-                    const DWORD now = GetTickCount();
-                    const DWORD deltaTime = now - scrollAnimator.lastTime;
-                    scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
-                    scrollAnimator.lastY = scrollAnimator.targetY;
-                    scrollAnimator.lastTime = now;
-
-                    float delta = (lastY - client_pt.y) * SMOOTH_FACTOR;
-                    scrollAnimator.targetY += delta;
-
-                    if (!scrollAnimator.raf) {
-                        scrollAnimator.raf = 1;
-                        std::thread([hwnd]() {
-                            while (true) {
-                                {
-                                    std::lock_guard<std::mutex> lock(scrollAnimator.mtx);
-                                    if (!scrollAnimator.raf) break;
-                                    
-                                    const int current = GetScrollPos(hwnd, SB_VERT);
-                                    const float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
-
-                                    SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, current + dy), 0);
-
-                                    scrollAnimator.velocity *= scrollAnimator.decay;
-
-                                    if (fabs(dy) <= 0.5f) {
-                                        scrollAnimator.raf = 0;
-                                        break;
-                                    }
-                                }
-                                Sleep(16);
-                            }
-                        }).detach();
-                    }
+        // 带插值的平滑计算
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        int actualScroll = static_cast<int>(smoothedDelta);
+                remainder = smoothedDelta - actualScroll;
+                
+                if (abs(remainder) >= SCROLL_THRESHOLD) {
+                    actualScroll += (remainder > 0) ? 1 : -1;
+                    remainder -= (remainder > 0) ? 1 : -1;
                 }
+
+                if (actualScroll != 0) {
+                  // 使用新的平滑滚动函数
+                  SmoothScroll(hwnd, actualScroll * custom_wheel_delta);
+              }
         
         lastY = client_pt.y;
 
