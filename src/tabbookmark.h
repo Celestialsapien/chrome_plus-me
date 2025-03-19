@@ -251,7 +251,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; 
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     
     if (wParam == WM_NCMOUSEMOVE) {
