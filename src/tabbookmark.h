@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.5f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.1f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,14 +242,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static float velocity = 0.0f;  // 新增速度追踪
-    static DWORD lastTime = 0;     // 新增时间记录
+    static DWORD lastTime = 0;  // 新增时间记录
+    const float decayFactor = 0.3f; // 指数衰减系数 (0.2~0.5)
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
-    // 新增动态平滑因子计算
-    const float SMOOTH_FACTOR_MIN = 0.6f;
-    const float SMOOTH_FACTOR_MAX = 0.9f;
 
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
@@ -309,7 +306,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 0.72)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
@@ -317,52 +314,28 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 修改后的平滑计算
-        DWORD currentTime = GetTickCount();
-        float deltaTime = (currentTime - lastTime) / 1000.0f;
-        lastTime = currentTime;
+         // 指数平滑计算（包含时间因子）
+         LONG delta = lastY - client_pt.y;
+         DWORD currentTime = GetTickCount();
+         float timeFactor = (currentTime - lastTime) / 16.0f; // 按60FPS标准化
+         timeFactor = std::clamp(timeFactor, 0.5f, 2.0f);  // 限制时间因子范围
+         // 指数加权平滑公式: R_t = α*ΔY + (1-α)*R_{t-1}
+         remainder = decayFactor * delta * timeFactor + (1 - decayFactor) * remainder;
+        
+        // 直接取整并保持余量
+        int actualScroll = static_cast<int>(remainder);
+        remainder -= actualScroll;
 
-        LONG rawDelta = lastY - client_pt.y;
-        velocity = (rawDelta + velocity * 0.5f) * 0.7f; // 速度累积
-        
-        // 动态调整平滑因子
-        float dynamicFactor = SMOOTH_FACTOR_MIN + 
-                            (SMOOTH_FACTOR_MAX - SMOOTH_FACTOR_MIN) * 
-                            (1.0f - expf(-fabsf(velocity) * 0.1f));
-        
-        float smoothedDelta = (rawDelta + remainder) * dynamicFactor;
-        remainder = smoothedDelta - static_cast<int>(smoothedDelta);
-        
-        // 非线性插值处理
-        if (fabsf(velocity) > 10.0f) {
-            smoothedDelta *= 1.2f; // 快速滚动时增强响应
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                    MAKEWPARAM(0, scrollAmount),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
-        int actualScroll = static_cast<int>(smoothedDelta);
-        
-        // 修改余量处理逻辑
-        if (fabsf(remainder) > 0.1f) {  // 调整阈值到0.1
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder = (remainder > 0) ? remainder - 1 : remainder + 1;
-      }
-
-        // 增加惯性滚动
-        if (actualScroll == 0 && fabsf(velocity) > 1.0f) {
-          actualScroll = (velocity > 0) ? 1 : -1;
-          velocity *= 0.9f; // 惯性衰减
-      }
-      
-      if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 使用更精确的滚动消息发送
-          for (int i = 0; i < abs(actualScroll); i++) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, (actualScroll > 0) ? custom_wheel_delta : -custom_wheel_delta),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
-      }
-      
-      lastY = client_pt.y;
+        lastY = client_pt.y;
+        lastTime = currentTime;  // 更新时间记录
 
         // 释放资源
         DeleteDC(hdcMem);
