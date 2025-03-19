@@ -324,17 +324,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         LONG delta = lastY - client_pt.y;
         if (delta != 0) {
             const DWORD now = GetTickCount();
-            const DWORD deltaTime = now - scrollAnimator.lastTime;
+            const DWORD deltaTime = (deltaTime != 0) ? deltaTime : 16;  // 修复bool类型使用问题
             
             // 计算速度
-            scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+            scrollAnimator.velocity = static_cast<float>(scrollAnimator.targetY - scrollAnimator.lastY) / deltaTime;  // 显式类型转换
             scrollAnimator.lastY = scrollAnimator.targetY;
             
             // 计算目标位置
-            float scrollAmount = delta * custom_wheel_delta;
+            float scrollAmount = static_cast<float>(delta) * custom_wheel_delta;  // 显式类型转换
             scrollAnimator.targetY += scrollAmount;
             scrollAnimator.lastTime = now;
-
+    
             // 立即触发滚动
             SCROLLINFO si = { sizeof(SCROLLINFO) };
             si.fMask = SIF_POS;
@@ -357,7 +357,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 // 启动平滑滚动动画
 if (!scrollAnimator.raf) {
   scrollAnimator.raf = true;
-  std::thread([hwnd]() {
+  std::thread([hwnd, rect = rect]() {  // 显式捕获rect
       while (true) {
           SCROLLINFO si = { sizeof(SCROLLINFO) };
           si.fMask = SIF_POS;
@@ -385,6 +385,7 @@ if (!scrollAnimator.raf) {
       }
   }).detach();
 }
+
 
         lastY = client_pt.y;
 
