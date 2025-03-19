@@ -255,7 +255,20 @@ void SmoothScroll(HWND hwnd, int delta) {
               GetClientRect(hwnd, &rect);
               int currentY = GetScrollPos(hwnd, SB_VERT);
               
+              // 添加边界检查
+              if (scrollAnimator.targetY < 0) {
+                  scrollAnimator.targetY = 0;
+              }
+              if (scrollAnimator.targetY > rect.bottom) {
+                  scrollAnimator.targetY = rect.bottom;
+              }
+              
               float dy = (scrollAnimator.targetY - currentY) * scrollAnimator.ease;
+              
+              // 添加最小滚动量检查
+              if (fabs(dy) < 1.0f) {
+                  dy = (dy > 0) ? 1.0f : -1.0f;
+              }
               
               // 更新滚动位置
               SetScrollPos(hwnd, SB_VERT, currentY + dy, TRUE);
@@ -355,6 +368,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           lastY = client_pt.y;
           remainder = 0;  // 重置剩余量
         }
+        // 增加最小移动量检查
+        if (abs(client_pt.y - lastY) < 2) {
+          break;
+      }
         
         // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
@@ -369,8 +386,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 }
 
                 if (actualScroll != 0) {
-                  // 使用新的平滑滚动函数
-                  SmoothScroll(hwnd, actualScroll * custom_wheel_delta);
+                  // 增加滚动方向检查
+                  if ((actualScroll > 0 && scrollAnimator.targetY > 0) ||
+                      (actualScroll < 0 && scrollAnimator.targetY < rect.bottom)) {
+                      SmoothScroll(hwnd, actualScroll * custom_wheel_delta);
+                  }
               }
         
         lastY = client_pt.y;
