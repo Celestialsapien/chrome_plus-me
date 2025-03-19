@@ -269,7 +269,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 8) {
+      if (client_pt.x >= rect.right - 16) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -320,45 +320,50 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
-      // 新增平滑滚动逻辑
-const DWORD now = GetTickCount();
-const DWORD deltaTime = now - scrollAnimator.lastTime;
+      if (lastY != -1) {
+        LONG delta = lastY - client_pt.y;
+        if (delta != 0) {  // 增加delta判断
+            const DWORD now = GetTickCount();
+            const DWORD deltaTime = now - scrollAnimator.lastTime;
+            
+            scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+            scrollAnimator.lastY = scrollAnimator.targetY;
+            scrollAnimator.targetY += delta * custom_wheel_delta;
+            scrollAnimator.lastTime = now;
 
-if (lastY != -1) {
-    LONG delta = lastY - client_pt.y;
-    scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
-    scrollAnimator.lastY = scrollAnimator.targetY;
-    scrollAnimator.targetY += delta * custom_wheel_delta;
-}
-
-scrollAnimator.lastTime = now;
-lastY = client_pt.y;
-
-// 启动平滑滚动动画
-if (!scrollAnimator.raf) {
-    scrollAnimator.raf = true;
-    std::thread([hwnd]() {
-        while (true) {
+            // 立即触发一次滚动
             SCROLLINFO si = { sizeof(SCROLLINFO) };
             si.fMask = SIF_POS;
             GetScrollInfo(hwnd, SB_VERT, &si);
-            
-            float current = static_cast<float>(si.nPos);
-            float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
-            
-            si.nPos += static_cast<int>(dy);
+            si.nPos += static_cast<int>(delta * custom_wheel_delta);
             SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-            
-            scrollAnimator.velocity *= scrollAnimator.decay;
-            
-            if (std::abs(dy) <= 0.5f) {
-                scrollAnimator.raf = false;
-                break;
-            }
-            
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
-    }).detach();
+    }
+    lastY = client_pt.y;
+
+// 启动平滑滚动动画
+if (!scrollAnimator.raf) {
+  scrollAnimator.raf = true;
+  std::thread([hwnd]() {
+      while (true) {
+          SCROLLINFO si = { sizeof(SCROLLINFO) };
+          si.fMask = SIF_POS;
+          GetScrollInfo(hwnd, SB_VERT, &si);
+          
+          float current = static_cast<float>(si.nPos);
+          float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
+          
+          if (std::abs(dy) > 0.5f) {
+              si.nPos += static_cast<int>(dy);
+              SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+              scrollAnimator.velocity *= scrollAnimator.decay;
+              std::this_thread::sleep_for(std::chrono::milliseconds(16));
+          } else {
+              scrollAnimator.raf = false;
+              break;
+          }
+      }
+  }).detach();
 }
 
         lastY = client_pt.y;
