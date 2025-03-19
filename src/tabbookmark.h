@@ -3,6 +3,7 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <mutex>  // 添加互斥锁支持
 
 HHOOK mouse_hook = nullptr;
 
@@ -240,6 +241,7 @@ struct ScrollAnimator {
   int raf = 0;
   const float ease = 0.1f;
   const float decay = 0.9f;
+  std::mutex mtx;  // 添加互斥锁
 } scrollAnimator;
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -321,38 +323,42 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 计算实时速度
-        const DWORD now = GetTickCount();
-        const DWORD deltaTime = now - scrollAnimator.lastTime;
-        scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
-        scrollAnimator.lastY = scrollAnimator.targetY;
-        scrollAnimator.lastTime = now;
+        std::lock_guard<std::mutex> lock(scrollAnimator.mtx);  // 加锁
+                    
+                    const DWORD now = GetTickCount();
+                    const DWORD deltaTime = now - scrollAnimator.lastTime;
+                    scrollAnimator.velocity = (scrollAnimator.targetY - scrollAnimator.lastY) / (deltaTime || 16);
+                    scrollAnimator.lastY = scrollAnimator.targetY;
+                    scrollAnimator.lastTime = now;
 
-        // 应用滚动
-        float delta = (lastY - client_pt.y) * SMOOTH_FACTOR;
-        scrollAnimator.targetY += delta;
+                    float delta = (lastY - client_pt.y) * SMOOTH_FACTOR;
+                    scrollAnimator.targetY += delta;
 
-        // 启动动画循环
-        if (!scrollAnimator.raf) {
-            scrollAnimator.raf = 1; // 使用1表示动画正在运行
-            std::thread([hwnd]() {
-                while (scrollAnimator.raf) {
-                    const int current = GetScrollPos(hwnd, SB_VERT);
-                    const float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
+                    if (!scrollAnimator.raf) {
+                        scrollAnimator.raf = 1;
+                        std::thread([hwnd]() {
+                            while (true) {
+                                {
+                                    std::lock_guard<std::mutex> lock(scrollAnimator.mtx);
+                                    if (!scrollAnimator.raf) break;
+                                    
+                                    const int current = GetScrollPos(hwnd, SB_VERT);
+                                    const float dy = (scrollAnimator.targetY - current) * scrollAnimator.ease;
 
-                    SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, current + dy), 0);
+                                    SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, current + dy), 0);
 
-                    // 速度衰减
-                    scrollAnimator.velocity *= scrollAnimator.decay;
+                                    scrollAnimator.velocity *= scrollAnimator.decay;
 
-                    if (fabs(dy) <= 0.5f) {
-                        scrollAnimator.raf = 0;
-                        break;
+                                    if (fabs(dy) <= 0.5f) {
+                                        scrollAnimator.raf = 0;
+                                        break;
+                                    }
+                                }
+                                Sleep(16);
+                            }
+                        }).detach();
                     }
-                    Sleep(16); // 模拟requestAnimationFrame的16ms间隔
                 }
-            }).detach();
-        }
         
         lastY = client_pt.y;
 
