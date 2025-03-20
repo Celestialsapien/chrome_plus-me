@@ -327,10 +327,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          static int remainingScroll = 0;    // 剩余滚动量
+          static DWORD lastAnimTime = 0;     // 上次动画时间
+          const int ANIM_DURATION = 300;     // 动画总时长300ms
+          const int FRAME_INTERVAL = 10;     // 每帧间隔10ms
+
+          // 累积新的滚动量
+          remainingScroll += actualScroll * custom_wheel_delta;
+          
+          DWORD currentTime = GetTickCount();
+          if (currentTime - lastAnimTime >= FRAME_INTERVAL) {
+            // 计算本帧应滚动的量（基于剩余时间和总量）
+            float progress = (currentTime - lastAnimTime) / (float)ANIM_DURATION;
+            int frameScroll = (int)(remainingScroll * progress);
+            
+            if (frameScroll == 0) {
+              frameScroll = remainingScroll > 0 ? 1 : -1;
+            }
+            
+            // 发送本帧滚动量
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, frameScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            
+            // 更新剩余量
+            remainingScroll -= frameScroll;
+            lastAnimTime = currentTime;
+          }
         }
         
         lastY = client_pt.y;
