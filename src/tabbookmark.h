@@ -309,7 +309,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (lastY == -1) {
           lastY = client_pt.y;
-          //remainder = 0;  // 重置剩余量
+          remainder = 0;  // 重置剩余量
         }
         
         // 带插值的平滑计算
@@ -328,19 +328,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (actualScroll != 0) {
           static int remainingScroll = 0;    // 剩余滚动量
-          static DWORD lastAnimTime = 0;     // 上次动画时间
+          static DWORD animStartTime = 0;    // 动画开始时间
           const int ANIM_DURATION = 300;     // 动画总时长300ms
           const int FRAME_INTERVAL = 10;     // 每帧间隔10ms
 
-          // 累积新的滚动量
-          remainingScroll += actualScroll * custom_wheel_delta;
+          // 初始化动画时间
+          if (remainingScroll == 0) {
+            animStartTime = GetTickCount();
+          }
           
+          // 累积新的滚动量（限制最大累积量）
+          remainingScroll += actualScroll * custom_wheel_delta;
+          remainingScroll = max(-600, min(600, remainingScroll)); // 防止溢出
+
           DWORD currentTime = GetTickCount();
-          if (currentTime - lastAnimTime >= FRAME_INTERVAL) {
-            // 计算本帧应滚动的量（基于剩余时间和总量）
-            float progress = (currentTime - lastAnimTime) / (float)ANIM_DURATION;
-            int frameScroll = (int)(remainingScroll * progress);
+          if (currentTime - animStartTime > ANIM_DURATION) {
+            animStartTime = currentTime; // 超时重置
+          }
+          
+          if (currentTime - animStartTime >= FRAME_INTERVAL) {
+            // 计算剩余时间比例
+            float timeLeft = (ANIM_DURATION - (currentTime - animStartTime)) / (float)ANIM_DURATION;
+            timeLeft = max(0.0f, min(1.0f, timeLeft));
             
+            // 基于缓动函数计算当前帧滚动量
+            float easeOut = 1.0f - powf(1.0f - timeLeft, 3.0f); // 三次方缓动
+            int frameScroll = (int)(remainingScroll * easeOut);
+            
+            // 确保至少滚动1单位
             if (frameScroll == 0) {
               frameScroll = remainingScroll > 0 ? 1 : -1;
             }
@@ -350,11 +365,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         MAKEWPARAM(0, frameScroll),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
             
-            // 更新剩余量
+            // 更新剩余量并重置时间
             remainingScroll -= frameScroll;
-            lastAnimTime = currentTime;
+            animStartTime = currentTime;
           }
         }
+
         
         lastY = client_pt.y;
 
@@ -364,7 +380,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
-        //remainder = 0;  // 离开时重置剩余量
+        remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
       }
       break;
