@@ -11,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 1.2f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.02f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,7 +242,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static float momentum = 0;   // 新增动量值用于缓动效果
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -308,47 +307,32 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
+      if (lastY != -1) {
         LONG delta = lastY - client_pt.y;
+        // 使用更精确的浮点运算
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
+        // 强制至少保留0.1的滚动量
+        if (abs(smoothedDelta) < 0.1f && delta != 0) {
+            smoothedDelta = (smoothedDelta > 0) ? 0.1f : -0.1f;
+        }
         
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(round(smoothedDelta));
+        remainder = smoothedDelta - actualScroll;
+
+        // 当余量较小且无实际滚动时保留余数
+        if (actualScroll == 0 && abs(remainder) < SCROLL_THRESHOLD) {
+            break;
         }
 
         if (actualScroll != 0) {
-          // 应用缓动函数（指数衰减）
-          momentum += actualScroll * 0.8f;  // 初始动量增强
-          momentum *= 0.85f;  // 衰减系数，数值越大滚动时间越长
-          
-          // 计算最终滚动量并保留余量
-          int scrollAmount = static_cast<int>(momentum) * custom_wheel_delta;
-          remainder += momentum - static_cast<int>(momentum);
-          
-          // 当动量小于阈值时停止滚动
-          if (fabs(momentum) < 0.08f) {
-              momentum = 0;
-              remainder = 0;
-          }
-          
-          if (scrollAmount != 0) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                          MAKEWPARAM(0, scrollAmount),
-                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
       }
-      
         
         lastY = client_pt.y;
 
@@ -356,13 +340,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         DeleteDC(hdcMem);
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
-        momentum = 0;  // 释放资源时重置动量
       } else {
-        lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
-        break; // 直接退出避免后续处理
-      }
-      break;
+        // 仅在完全离开滚动区域时重置状态
+        if (client_pt.x < rect.right - 20 && lastY != -1) {
+          lastY = -1;
+          remainder = 0;
+        }
+        break;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
