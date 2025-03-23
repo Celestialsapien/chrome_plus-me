@@ -242,7 +242,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
     static float momentum = 0;   // 新增动量值用于缓动效果
     if (wParam == WM_NCMOUSEMOVE) {
       break;
