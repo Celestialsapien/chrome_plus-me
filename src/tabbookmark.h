@@ -329,7 +329,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (actualScroll != 0) {
           static int remainingScroll = 0;    // 剩余滚动量
           static DWORD animStartTime = 0;    // 动画开始时间
-          const int ANIM_DURATION = 300;     // 动画总时长300ms
+          const int ANIM_DURATION = 500;     // 动画总时长300ms
           const int FRAME_INTERVAL = 10;     // 每帧间隔10ms
 
           // 初始化动画时间
