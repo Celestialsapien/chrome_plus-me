@@ -327,30 +327,40 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 新增滚动动画参数
+          // 修复滚动量分配逻辑
           static int accumulatedScroll = 0;
           static DWORD startTime = 0;
-          const int totalSteps = 6; // 300ms / 50ms per step
+          const int totalDuration = 300; // 总持续时间300ms
           
           if (startTime == 0) {
               startTime = GetTickCount();
               accumulatedScroll = actualScroll * custom_wheel_delta;
           }
 
-          // 计算当前应该发送的滚动量
           DWORD elapsed = GetTickCount() - startTime;
-          int currentStep = min(totalSteps, (int)(elapsed / 50));
-          int stepSize = accumulatedScroll / totalSteps;
-
-          if (currentStep > 0 && stepSize != 0) {
+          float progress = min(1.0f, elapsed / (float)totalDuration);
+          
+          // 计算当前应发送的滚动量（带符号处理）
+          int currentAmount = static_cast<int>(accumulatedScroll * progress);
+          int step = currentAmount - (accumulatedScroll - (actualScroll * custom_wheel_delta));
+          
+          // 确保最小滚动量
+          if (step != 0) {
               SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, stepSize),
+                        MAKEWPARAM(0, step),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll -= stepSize;
-              startTime = GetTickCount(); // 重置计时器
+              accumulatedScroll -= step;
           }
 
-          // 动画结束后重置状态
+          // 强制完成剩余滚动
+          if (progress >= 1.0f && accumulatedScroll != 0) {
+              SendMessage(hwnd, WM_MOUSEWHEEL,
+                        MAKEWPARAM(0, accumulatedScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              accumulatedScroll = 0;
+          }
+
+          // 重置状态
           if (accumulatedScroll == 0) {
               startTime = 0;
           }
