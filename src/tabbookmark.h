@@ -307,32 +307,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
-      if (lastY != -1) {
-        LONG delta = lastY - client_pt.y;
-        // 使用更精确的浮点运算
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        
-        // 强制至少保留0.1的滚动量
-        if (abs(smoothedDelta) < 0.1f && delta != 0) {
-            smoothedDelta = (smoothedDelta > 0) ? 0.1f : -0.1f;
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
         }
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(round(smoothedDelta));
-        remainder = smoothedDelta - actualScroll;
+        // 带插值的平滑计算
+        if (lastY != -1) {
+          LONG delta = lastY - client_pt.y;
+          // 使用更精确的浮点运算
+          float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+          
+          // 强制至少保留0.1的滚动量
+          if (abs(smoothedDelta) < 0.1f && delta != 0) {
+              smoothedDelta = (smoothedDelta > 0) ? 0.1f : -0.1f;
+          }
+          
+          // 分离整数和小数部分
+          int actualScroll = static_cast<int>(round(smoothedDelta));
+          remainder = smoothedDelta - actualScroll;
 
-        // 当余量较小且无实际滚动时保留余数
-        if (actualScroll == 0 && abs(remainder) < SCROLL_THRESHOLD) {
-            break;
-        }
+          // 当余量较小且无实际滚动时保留余数
+          if (actualScroll == 0 && abs(remainder) < SCROLL_THRESHOLD) {
+              break;
+          }
 
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          if (actualScroll != 0) {
+            int scrollAmount = actualScroll * custom_wheel_delta;
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, scrollAmount),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          }
         }
-      }
         
         lastY = client_pt.y;
 
@@ -341,12 +347,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
       } else {
-        // 仅在完全离开滚动区域时重置状态
         if (client_pt.x < rect.right - 20 && lastY != -1) {
           lastY = -1;
           remainder = 0;
         }
-        break;
+        break; // 直接退出避免后续处理
+      }
+      break;
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
