@@ -242,6 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static float momentum = 0;   // 新增动量值用于缓动效果
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -327,44 +329,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 修复滚动量分配逻辑
-          static int accumulatedScroll = 0;
-          static DWORD startTime = 0;
-          const int totalDuration = 300; // 总持续时间300ms
+          // 应用缓动函数（指数衰减）
+          momentum += actualScroll * 0.5f;  // 初始动量增强
+          momentum *= 0.9f;  // 衰减系数，数值越大滚动时间越长
           
-          if (startTime == 0) {
-              startTime = GetTickCount();
-              accumulatedScroll = actualScroll * custom_wheel_delta;
+          // 计算最终滚动量并保留余量
+          int scrollAmount = static_cast<int>(momentum) * custom_wheel_delta;
+          remainder += momentum - static_cast<int>(momentum);
+          
+          // 当动量小于阈值时停止滚动
+          if (fabs(momentum) < 0.1f) {
+              momentum = 0;
+              remainder = 0;
           }
-
-          DWORD elapsed = GetTickCount() - startTime;
-          float progress = min(1.0f, elapsed / (float)totalDuration);
           
-          // 计算当前应发送的滚动量（带符号处理）
-          int currentAmount = static_cast<int>(accumulatedScroll * progress);
-          int step = currentAmount - (accumulatedScroll - (actualScroll * custom_wheel_delta));
-          
-          // 确保最小滚动量
-          if (step != 0) {
+          if (scrollAmount != 0) {
               SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, step),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll -= step;
+                          MAKEWPARAM(0, scrollAmount),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           }
-
-          // 强制完成剩余滚动
-          if (progress >= 1.0f && accumulatedScroll != 0) {
-              SendMessage(hwnd, WM_MOUSEWHEEL,
-                        MAKEWPARAM(0, accumulatedScroll),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll = 0;
-          }
-
-          // 重置状态
-          if (accumulatedScroll == 0) {
-              startTime = 0;
-          }
-        }
+      }
+      
         
         lastY = client_pt.y;
 
@@ -372,6 +357,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         DeleteDC(hdcMem);
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
+        momentum = 0;  // 释放资源时重置动量
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
