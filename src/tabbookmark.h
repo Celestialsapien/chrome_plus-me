@@ -327,50 +327,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          static int remainingScroll = 0;    // 剩余滚动量
-          static DWORD animStartTime = 0;    // 动画开始时间
-          const int ANIM_DURATION = 500;     // 动画总时长300ms
-          const int FRAME_INTERVAL = 10;     // 每帧间隔10ms
-
-          // 初始化动画时间
-          if (remainingScroll == 0) {
-            animStartTime = GetTickCount();
-          }
+          // 新增滚动动画参数
+          static int accumulatedScroll = 0;
+          static DWORD startTime = 0;
+          const int totalSteps = 6; // 300ms / 50ms per step
           
-          // 累积新的滚动量（限制最大累积量）
-          remainingScroll += actualScroll * custom_wheel_delta;
-          remainingScroll = max(-600, min(600, remainingScroll)); // 防止溢出
-
-          DWORD currentTime = GetTickCount();
-          if (currentTime - animStartTime > ANIM_DURATION) {
-            animStartTime = currentTime; // 超时重置
+          if (startTime == 0) {
+              startTime = GetTickCount();
+              accumulatedScroll = actualScroll * custom_wheel_delta;
           }
-          
-          if (currentTime - animStartTime >= FRAME_INTERVAL) {
-            // 计算剩余时间比例
-            float timeLeft = (ANIM_DURATION - (currentTime - animStartTime)) / (float)ANIM_DURATION;
-            timeLeft = max(0.0f, min(1.0f, timeLeft));
-            
-            // 基于缓动函数计算当前帧滚动量
-            float easeOut = 1.0f - powf(1.0f - timeLeft, 3.0f); // 三次方缓动
-            int frameScroll = (int)(remainingScroll * easeOut);
-            
-            // 确保至少滚动1单位
-            if (frameScroll == 0) {
-              frameScroll = remainingScroll > 0 ? 1 : -1;
-            }
-            
-            // 发送本帧滚动量
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, frameScroll),
+
+          // 计算当前应该发送的滚动量
+          DWORD elapsed = GetTickCount() - startTime;
+          int currentStep = min(totalSteps, (int)(elapsed / 50));
+          int stepSize = accumulatedScroll / totalSteps;
+
+          if (currentStep > 0 && stepSize != 0) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, stepSize),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            
-            // 更新剩余量并重置时间
-            remainingScroll -= frameScroll;
-            animStartTime = currentTime;
+              accumulatedScroll -= stepSize;
+              startTime = GetTickCount(); // 重置计时器
+          }
+
+          // 动画结束后重置状态
+          if (accumulatedScroll == 0) {
+              startTime = 0;
           }
         }
-
         
         lastY = client_pt.y;
 
