@@ -337,7 +337,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder += momentum - static_cast<int>(momentum);
           
           // 当动量小于阈值时停止滚动
-          if (fabs(momentum) < 0.1f) {
+          if (fabs(momentum) < 0.02f) {
               momentum = 0;
               remainder = 0;
           }
