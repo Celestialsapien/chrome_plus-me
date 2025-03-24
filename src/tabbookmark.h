@@ -286,6 +286,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
       
       // 计算平均亮度并确定模式
+      int avgBrightness = totalBrightness / (rect.bottom * 8); // 总像素数为高度×8
+      // 计算平均亮度并确定模式
       isDarkMode = avgBrightness < 128;
       long threshold = isDarkMode ? 0x101010 : 0x202020;
       
@@ -300,8 +302,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
       }
 
-      // 计算平均亮度并确定模式
-      int avgBrightness = totalBrightness / (rect.bottom * 8); // 总像素数为高度×8
+      
       
       // 重新遍历检测边缘（添加滑块高度计算）
       int scrollbarHeight = 0;
