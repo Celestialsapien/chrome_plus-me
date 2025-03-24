@@ -292,35 +292,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       // 重新遍历检测边缘
       totalBrightness = 0; // 重置用于边缘检测的亮度累计
-      int scrollbarHeight = 0; // 添加缺失的变量声明
       for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        
-        if (prevColor != CLR_INVALID) {
-          long colorDiff = labs(static_cast<long>(color - prevColor));
-          if (colorDiff > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-              }
-          }
+        // 修改为遍历每行所有8个像素
+        for (int x = 0; x < 8; x++) {
+          BYTE* pixel = &pixels[(y * 8 + x) * 4];
+          COLORREF color = RGB(pixel[2], pixel[1], pixel[0]);
+          totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         }
-        prevColor = color;
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
       }
 
-      // 新增详细调试信息
+      // 计算平均亮度并确定模式
+      int avgBrightness = totalBrightness / (rect.bottom * 8); // 总像素数为高度×8
+      
+      // 重新遍历检测边缘（添加滑块高度计算）
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;
+          // 添加合理性校验
+          if (scrollbarHeight <= 0 || scrollbarHeight > rect.bottom) {
+              scrollbarHeight = 0;
+          }
+      }
+
+      // 修改调试输出格式
       wchar_t debugMsg[512];
-      swprintf_s(debugMsg, L"[Scroll] AvgBrightness: %d, Threshold: 0x%X\n"
-                L"UpperEdge: %d, LowerEdge: %d, Height: %d\n"
-                L"PixelData: %02X%02X%02X... (first pixel)",
-                avgBrightness, threshold,
-                upperEdge, lowerEdge, (lowerEdge != -1 && upperEdge != -1) ? lowerEdge - upperEdge : 0,
+      swprintf_s(debugMsg, L"[Scroll] ClientH:%d Avg:%d\n"
+                L"EdgeRange: [%d~%d] Height:%d\n" 
+                L"FirstPixel: R%02X G%02X B%02X",
+                rect.bottom, avgBrightness,
+                upperEdge, lowerEdge, scrollbarHeight,
                 GetRValue(RGB(pixels[2], pixels[1], pixels[0])),
                 GetGValue(RGB(pixels[2], pixels[1], pixels[0])),
                 GetBValue(RGB(pixels[2], pixels[1], pixels[0])));
-      OutputDebugString(debugMsg);
 
       // 计算动态滚动量
       float ratio = 0.0f;
