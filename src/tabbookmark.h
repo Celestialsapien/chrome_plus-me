@@ -7,12 +7,13 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+#define WHEEL_DELTA 120
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;
-#define SMOOTH_FACTOR 0.85f        // 提高平滑因子增强连贯性（原0.75）
-#define SCROLL_THRESHOLD 0.03f     // 降低滚动阈值捕捉更小的余量（原0.05）
+int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,6 +243,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static int scrollAccumulator = 0;  // 新增滚动量累积器
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -320,21 +322,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
         
-        // 调整后的余量处理逻辑
-        if (actualScroll == 0 && abs(remainder) > 0.001f) {
-          // 当实际滚动量为零但有余量时，累积余量到下一次
-          break; 
-        } else if (abs(remainder) >= SCROLL_THRESHOLD) {
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
         }
 
-        // 增加最小滚动量判断（即使actualScroll为0但有余量也发送）
-        if (actualScroll != 0 || abs(remainder) > 0.5f) {
-          int scrollAmount = actualScroll * max(1, custom_wheel_delta); // 确保最小滚动量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          
+          // 新增滚动量累积逻辑
+          scrollAccumulator += scrollAmount;
+          int systemScroll = 0;
+          
+          // 当累积量达到系统单位时发送滚动事件
+          while (abs(scrollAccumulator) >= WHEEL_DELTA) {  // WHEEL_DELTA=120
+            systemScroll = (scrollAccumulator > 0) ? WHEEL_DELTA : -WHEEL_DELTA;
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, systemScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            scrollAccumulator -= systemScroll;
+          }
         }
         
         lastY = client_pt.y;
