@@ -1,10 +1,13 @@
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")  // 新增手势库支持
+
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <winuser.h>
-#include <peninputpanel_i.c>
+#include <windows.h>
+#include <winuser.h>       // 新增触摸相关头文件
 
 HHOOK mouse_hook = nullptr;
 
@@ -15,10 +18,6 @@ HHOOK mouse_hook = nullptr;
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
-#define _WIN32_WINNT 0x0602  // 声明需要Windows 8+ API
-#define TOUCH_FEEDBACK_NORMAL 1
-#define INERTIA_DECELERATION 0.92f
-#define SCROLL_UPDATE_INTERVAL 10
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -255,6 +254,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
+      RegisterTouchWindow(hwnd, TWF_WANTPALM);  // 在此处注册触摸窗口
       RECT rect;
       GetClientRect(hwnd, &rect);
       
@@ -333,66 +333,21 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 改用触摸注入API
-          static float velocity = 0;
-          velocity += actualScroll * custom_wheel_delta * 2.0f;
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 改为发送触摸滚动消息
+          SendMessage(hwnd, WM_GESTURE, 
+                     MAKEWPARAM(GID_PAN, 0),
+                     MAKELPARAM(
+                         (short)(pmouse->pt.x), 
+                         (short)(pmouse->pt.y)));
           
-          // 转换坐标到屏幕坐标系 (修正：获取正确的窗口句柄)
-          POINT startPos = pmouse->pt;
-          HWND targetWnd = WindowFromPoint(startPos); // 新增目标窗口获取
-          ClientToScreen(targetWnd, &startPos); 
-
-          // 新增屏幕边界检查
-          startPos.x = max(0, min(startPos.x, GetSystemMetrics(SM_CXSCREEN) - 1));
-          startPos.y = max(0, min(startPos.y, GetSystemMetrics(SM_CYSCREEN) - 1));
-
-          InitializeTouchInjection(1, TOUCH_FEEDBACK_NORMAL);
-          
-          // 创建触摸点结构（新增坐标偏移量）
-          POINTER_TOUCH_INFO contact;
-          memset(&contact, 0, sizeof(POINTER_TOUCH_INFO));
-          contact.pointerInfo.pointerType = PT_TOUCH;
-          contact.pointerInfo.pointerId = 0;
-          contact.pointerInfo.ptPixelLocation = startPos; // 设置精确坐标
-          contact.touchFlags = TOUCH_FLAG_NONE;
-          contact.touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION;
-          
-          // 设置接触区域（修正：基于精确坐标）
-          contact.rcContact.left = startPos.x - 2;
-          contact.rcContact.top = startPos.y - 2;
-          contact.rcContact.right = startPos.x + 2;
-          contact.rcContact.bottom = startPos.y + 2;
-          
-          // 开始触摸
-          contact.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE;
-          InjectTouchInput(1, &contact);
-          
-          // 模拟惯性滑动
-          float delta = 0;
-          for(int i = 0; velocity != 0 && i < 50; i++) {
-            delta = velocity;
-            // 修正：通过ptPixelLocation更新坐标
-            contact.pointerInfo.ptPixelLocation.y -= static_cast<int>(delta);
-            
-            // 限制坐标范围（新增XY双向检查）
-            contact.pointerInfo.ptPixelLocation.y = max(0, min(contact.pointerInfo.ptPixelLocation.y, 
-                GetSystemMetrics(SM_CYSCREEN) - 1));
-            contact.pointerInfo.ptPixelLocation.x = max(0, min(contact.pointerInfo.ptPixelLocation.x,
-                GetSystemMetrics(SM_CXSCREEN) - 1));
-                
-            // 更新接触区域
-            contact.rcContact.top = contact.pointerInfo.ptPixelLocation.y - 2;
-            contact.rcContact.bottom = contact.pointerInfo.ptPixelLocation.y + 2;
-              InjectTouchInput(1, &contact);
-              
-              velocity *= INERTIA_DECELERATION;
-              if(fabs(velocity) < 1.0f) break;
-              Sleep(SCROLL_UPDATE_INTERVAL);
-          }
-          
-          // 结束触摸
-          contact.pointerInfo.pointerFlags = POINTER_FLAG_UP;
-          InjectTouchInput(1, &contact);
+          // 发送滚动增量值
+          GESTUREINFO gi = {0};
+          gi.cbSize = sizeof(GESTUREINFO);
+          gi.dwFlags = GF_BEGIN;
+          gi.dwID = GID_PAN;
+          gi.ullArguments = (DWORD)(scrollAmount); // WHEEL_DELTA单位
+          SendMessage(hwnd, WM_GESTURENOTIFY, 0, (LPARAM)&gi);
         }
         
         lastY = client_pt.y;
