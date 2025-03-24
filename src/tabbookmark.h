@@ -12,7 +12,7 @@ HHOOK mouse_hook = nullptr;
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define SCROLL_THRESHOLD 1.0f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -327,13 +327,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 添加速度衰减因子（当滚动量较小时应用更平滑的减速）
-          float decay = (abs(actualScroll) > 2) ? 1.0f : (0.4f + abs(actualScroll)*0.3f);
-          int scrollAmount = static_cast<int>(actualScroll * custom_wheel_delta * decay);
-          
-          // 保持总滚动距离不变的前提下分配余量
-          remainder += (actualScroll * (1 - decay)) * custom_wheel_delta / 120.0f;
-          
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
