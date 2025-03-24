@@ -292,6 +292,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       // 重新遍历检测边缘
       totalBrightness = 0; // 重置用于边缘检测的亮度累计
+      int scrollbarHeight = 0; // 添加缺失的变量声明
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
         
