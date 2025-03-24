@@ -10,9 +10,10 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+int custom_wheel_delta = 1;
+#define SMOOTH_FACTOR 0.92f        // 提高平滑因子增强惯性（原0.75）
+#define SCROLL_THRESHOLD 0.01f     // 更低阈值（原0.05）
+#define INERTIA_DECAY 0.96f        // 新增惯性衰减系数
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -242,8 +243,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static POINT dragStartPos = {0};
-    static BOOL isDragging = FALSE;
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -302,48 +301,36 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
 
-      // 计算动态滚动量
-      float ratio = 0.0f;
-      if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
-      }
-
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
+      // 改进后的平滑计算
+    if (lastY != -1) {
+      static float velocity = 0.0f;  // 新增速度跟踪
+      LONG delta = lastY - client_pt.y;
+      
+      // 带惯性的平滑计算
+      velocity = (delta + velocity) * SMOOTH_FACTOR;
+      float smoothedDelta = velocity * INERTIA_DECAY;
+      
+      // 更精细的余量处理
+      int actualScroll = static_cast<int>(smoothedDelta);
+      remainder = smoothedDelta - actualScroll;
+      
+      // 动态调整阈值（基于当前速度）
+      float dynamicThreshold = SCROLL_THRESHOLD * (1.0f + fabs(velocity)/5.0f);
+      if (fabs(remainder) >= dynamicThreshold) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
-        }
+      }
 
-        if (actualScroll != 0) {
-          if (!isDragging) {
-            SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 
-                       MAKELPARAM(client_pt.x, client_pt.y));
-            dragStartPos = client_pt;
-            isDragging = TRUE;
-          }
-
-          int deltaY = (client_pt.y - dragStartPos.y) * 2;
-          SendMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, 
-                     MAKELPARAM(client_pt.x, client_pt.y + deltaY));
-        } else if (isDragging) {
-          SendMessage(hwnd, WM_LBUTTONUP, 0, 
-                     MAKELPARAM(client_pt.x, client_pt.y));
-          isDragging = FALSE;
-        }
+      if (actualScroll != 0) {
+          // 更细腻的滚动量计算
+          int scrollAmount = actualScroll * max(1, custom_wheel_delta / 3); 
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 保留部分惯性
+          velocity = remainder * 0.8f;  
+      }
+    }
         
         lastY = client_pt.y;
 
