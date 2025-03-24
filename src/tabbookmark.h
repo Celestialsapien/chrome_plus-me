@@ -15,6 +15,10 @@ HHOOK mouse_hook = nullptr;
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define _WIN32_WINNT 0x0602  // 声明需要Windows 8+ API
+#define TOUCH_FEEDBACK_NORMAL 1
+#define INERTIA_DECELERATION 0.92f
+#define SCROLL_UPDATE_INTERVAL 10
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -333,7 +337,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           static float velocity = 0;
           velocity += actualScroll * custom_wheel_delta * 2.0f;
           
-          // 初始化触摸信息
+          // 初始化触摸信息（使用新定义的宏）
           POINT startPos = pmouse->pt;
           InitializeTouchInjection(1, TOUCH_FEEDBACK_NORMAL);
           
