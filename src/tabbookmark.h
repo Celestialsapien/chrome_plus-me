@@ -273,17 +273,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
+      int upperEdge = -1;
+      int lowerEdge = -1;
       COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
+      LONG totalBrightness = 0;
+      bool isDarkMode = false;  // 新增深色模式标志
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
           long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          isDarkMode = (totalBrightness / (y+1) < 128);  // 记录当前模式
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -293,12 +293,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               }
           }
         }
-      prevColor = color;
+        prevColor = color;
       }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
+          scrollbarHeight = lowerEdge - upperEdge;
       }
+      // 新增调试输出
+      wchar_t debugMsg[256];
+      swprintf_s(debugMsg, L"[Scroll] Mode: %s, Upper: %d, Lower: %d, Height: %d",
+                isDarkMode ? L"Dark" : L"Light", 
+                upperEdge, 
+                lowerEdge, 
+                scrollbarHeight);
+      OutputDebugString(debugMsg);
 
       // 计算动态滚动量
       float ratio = 0.0f;
@@ -327,19 +335,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 分解单次滚动为多次小幅度滚动
-          int steps = abs(actualScroll);
-          int direction = actualScroll > 0 ? 1 : -1;
-          
-          for (int i = 0; i < steps; ++i) {
-              // 每次发送基础单位量，保持总滚动量不变
-              int scrollAmount = direction * custom_wheel_delta;
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              // 添加短暂间隔保证动画连贯性
-              Sleep(10); 
-          }
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
