@@ -283,12 +283,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+          long avgBrightness = totalBrightness / (y+1);
+          long threshold = (avgBrightness < 96) ? 0x080808 : 0x181818; // 调整阈值范围
+          if (abs(static_cast<int>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
-              } else {
+              } else if (lowerEdge == -1) {
                   lowerEdge = y;
+                  // 增加最小滑块高度检查（Windows 11可能有更小的滚动条）
+                  if (lowerEdge - upperEdge < rect.bottom / 50) continue;
                   break;
               }
           }
@@ -327,18 +330,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 分割为10次滚动
-          int baseScroll = scrollAmount / 10;
-          int remainder = scrollAmount % 10;
-          
-          for (int i = 0; i < 10; ++i) {
-            int delta = baseScroll + ((i == 9) ? remainder : 0);
-            SendMessage(hwnd, WM_MOUSEWHEEL,
-                        MAKEWPARAM(0, delta),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            Sleep(1); // 添加微小延迟保证平滑
-          }
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
