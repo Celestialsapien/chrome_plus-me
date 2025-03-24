@@ -277,35 +277,48 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       int lowerEdge = -1;
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;
-      bool isDarkMode = false;  // 新增深色模式标志
+      bool isDarkMode = false;
+      
+      // 先遍历所有像素计算总亮度
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+      }
+      
+      // 计算平均亮度并确定模式
+      int avgBrightness = totalBrightness / rect.bottom;
+      isDarkMode = avgBrightness < 128;
+      long threshold = isDarkMode ? 0x101010 : 0x202020;
+      
+      // 重新遍历检测边缘
+      totalBrightness = 0; // 重置用于边缘检测的亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        
         if (prevColor != CLR_INVALID) {
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          isDarkMode = (totalBrightness / (y+1) < 128);  // 记录当前模式
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+          long colorDiff = labs(static_cast<long>(color - prevColor));
+          if (colorDiff > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
               } else {
                   lowerEdge = y;
-                  break;
               }
           }
         }
         prevColor = color;
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
       }
-      int scrollbarHeight = 0;
-      if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;
-      }
-      // 新增调试输出
-      wchar_t debugMsg[256];
-      swprintf_s(debugMsg, L"[Scroll] Mode: %s, Upper: %d, Lower: %d, Height: %d",
-                isDarkMode ? L"Dark" : L"Light", 
-                upperEdge, 
-                lowerEdge, 
-                scrollbarHeight);
+
+      // 新增详细调试信息
+      wchar_t debugMsg[512];
+      swprintf_s(debugMsg, L"[Scroll] AvgBrightness: %d, Threshold: 0x%X\n"
+                L"UpperEdge: %d, LowerEdge: %d, Height: %d\n"
+                L"PixelData: %02X%02X%02X... (first pixel)",
+                avgBrightness, threshold,
+                upperEdge, lowerEdge, (lowerEdge != -1 && upperEdge != -1) ? lowerEdge - upperEdge : 0,
+                GetRValue(RGB(pixels[2], pixels[1], pixels[0])),
+                GetGValue(RGB(pixels[2], pixels[1], pixels[0])),
+                GetBValue(RGB(pixels[2], pixels[1], pixels[0])));
       OutputDebugString(debugMsg);
 
       // 计算动态滚动量
