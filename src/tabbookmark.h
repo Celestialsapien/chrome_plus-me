@@ -1,5 +1,4 @@
 #pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "user32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -9,11 +8,6 @@ HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
-// 在文件顶部添加手势常量定义
-#define GC_ALLGESTURES      0x00000001
-#define WM_GESTURE         0x0119
-#define WM_GESTURENOTIFY   0x011A
-#define GID_PAN            0x00000001
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
@@ -333,16 +327,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 改用触摸惯性滚动
-          GESTUREINFO gi = {0};
-          gi.cbSize = sizeof(GESTUREINFO);
-          gi.dwFlags = GF_BEGIN;
-          gi.dwID = GID_PAN;
-          gi.ullArguments = actualScroll * custom_wheel_delta;
-          SendMessage(hwnd, WM_GESTURE, 0, (LPARAM)&gi);
-
-          gi.dwFlags = GF_INERTIA | GF_END;  // 启用惯性滚动
-          SendMessage(hwnd, WM_GESTURE, 0, (LPARAM)&gi);
+          // 恢复原始滚动方式，并优化滚动步长
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 将单次滚动分解为多次小步滚动
+          int steps = max(1, abs(scrollAmount) / 4);  // 增加滚动步数
+          int step = scrollAmount / steps;
+          for(int i = 0; i < steps; i++) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, step),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          }
         }
         
         lastY = client_pt.y;
