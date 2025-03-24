@@ -313,30 +313,31 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // 带插值的平滑计算
-        if (lastY != -1) {
-          LONG delta = lastY - client_pt.y;
-          // 使用更精确的浮点运算
-          float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-          
-          // 强制至少保留0.1的滚动量
-          if (abs(smoothedDelta) < 0.1f && delta != 0) {
-              smoothedDelta = (smoothedDelta > 0) ? 0.1f : -0.1f;
-          }
-          
-          // 分离整数和小数部分
-          int actualScroll = static_cast<int>(round(smoothedDelta));
-          remainder = smoothedDelta - actualScroll;
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
 
-          // 当余量较小且无实际滚动时保留余数
-          if (actualScroll == 0 && abs(remainder) < SCROLL_THRESHOLD) {
-              break;
-          }
-
-          if (actualScroll != 0) {
-            int scrollAmount = actualScroll * custom_wheel_delta;
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 分割为10次滚动
+          int baseScroll = scrollAmount / 10;
+          int remainder = scrollAmount % 10;
+          
+          for (int i = 0; i < 10; ++i) {
+            int delta = baseScroll + ((i == 9) ? remainder : 0);
+            SendMessage(hwnd, WM_MOUSEWHEEL,
+                        MAKEWPARAM(0, delta),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            Sleep(1); // 添加微小延迟保证平滑
           }
         }
         
@@ -347,10 +348,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
       } else {
-        if (client_pt.x < rect.right - 20 && lastY != -1) {
-          lastY = -1;
-          remainder = 0;
-        }
+        lastY = -1;
+        remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
       }
       break;
