@@ -3,7 +3,6 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <winuser.h>
 
 HHOOK mouse_hook = nullptr;
 
@@ -14,6 +13,8 @@ HHOOK mouse_hook = nullptr;
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define INERTIA_DECELERATION 0.92f  // 惯性衰减系数
+#define SCROLL_UPDATE_INTERVAL 10   // 滚动更新间隔(ms)
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -328,15 +329,28 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 使用平滑滚动API
-          MOUSEINPUT mi = {0};
-          mi.dx = 0;
-          mi.dy = 0;
-          mi.mouseData = scrollAmount;
-          mi.dwFlags = MOUSEEVENTF_WHEEL | MOUSEEVENTF_HWHEEL;
-          mi.time = 0;
-          SendInput(1, (LPINPUT)&mi, sizeof(INPUT));
+          // 改用滚动条控制+惯性算法
+          static float velocity = 0;
+          velocity += actualScroll * custom_wheel_delta * 0.5f;
+          
+          // 启动惯性滚动定时器
+          SetTimer(hwnd, 1, SCROLL_UPDATE_INTERVAL, [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time){
+              SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
+              GetScrollInfo(hwnd, SB_VERT, &si);
+              
+              // 应用速度
+              int newPos = si.nPos + static_cast<int>(velocity);
+              velocity *= INERTIA_DECELERATION; // 速度衰减
+              
+              // 限制位置范围
+              newPos = max(min(newPos, si.nMax - (int)si.nPage + 1), si.nMin);
+              
+              // 发送滚动消息
+              SendMessage(hwnd, WM_VSCROLL, 
+                         MAKEWPARAM(SB_THUMBTRACK, newPos), 0);
+              
+              if(fabs(velocity) < 1.0f) KillTimer(hwnd, id);
+          });
         }
         
         lastY = client_pt.y;
