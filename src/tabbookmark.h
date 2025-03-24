@@ -7,7 +7,6 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-#define WHEEL_DELTA 120
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
@@ -243,7 +242,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static int scrollAccumulator = 0;  // 新增滚动量累积器
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -318,30 +316,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 改为浮点计算保留余数
+          static float scroll_remainder = 0.0f;
+          float scrollAmount = actualScroll * custom_wheel_delta + scroll_remainder;
           
-          // 新增滚动量累积逻辑
-          scrollAccumulator += scrollAmount;
-          int systemScroll = 0;
+          // 分离整数和小数部分
+          int actualWheel = static_cast<int>(scrollAmount);
+          scroll_remainder = scrollAmount - actualWheel;
           
-          // 当累积量达到系统单位时发送滚动事件
-          while (abs(scrollAccumulator) >= WHEEL_DELTA) {  // WHEEL_DELTA=120
-            systemScroll = (scrollAccumulator > 0) ? WHEEL_DELTA : -WHEEL_DELTA;
+          // 动态调整滚动量（保持原有逻辑但使用浮点）
+          if (actualWheel != 0) {
             SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, systemScroll),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            scrollAccumulator -= systemScroll;
+                      MAKEWPARAM(0, actualWheel),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           }
         }
         
