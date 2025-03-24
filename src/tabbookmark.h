@@ -344,19 +344,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                      MAKELPARAM(client_pt.x, client_pt.y));
           isDragging = FALSE;
         }
-
-          // 计算拖动距离（反向滚动）
-          int deltaY = (client_pt.y - dragStartPos.y) * 2; // 加速因子
-          
-          // 发送鼠标移动消息（带左键按下状态）
-          SendMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, 
-                     MAKELPARAM(client_pt.x, client_pt.y + deltaY));
-        } else if (isDragging) {
-          // 释放鼠标左键
-          SendMessage(hwnd, WM_LBUTTONUP, 0, 
-                     MAKELPARAM(client_pt.x, client_pt.y));
-          isDragging = FALSE;
-        }
         
         lastY = client_pt.y;
 
