@@ -273,26 +273,36 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
+      int upperEdge = -1;
+      int lowerEdge = -1;
       COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
+      LONG totalBrightness = 0;
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          // 增强型颜色差异计算
           long avgBrightness = totalBrightness / (y+1);
-          long threshold = (avgBrightness < 96) ? 0x080808 : 0x181818; // 调整阈值范围
-          if (abs(static_cast<int>(color - prevColor)) > threshold) {
+          long threshold = (avgBrightness < 96) ? 0x0A0A0A : 0x151515; // 降低阈值
+          int colorDiff = abs(static_cast<int>(color - prevColor));
+          
+          // 新增通道差异检测
+          int rDiff = abs(GetRValue(color) - GetRValue(prevColor));
+          int gDiff = abs(GetGValue(color) - GetGValue(prevColor));
+          int bDiff = abs(GetBValue(color) - GetBValue(prevColor));
+          
+          if (colorDiff > threshold || (rDiff > 0x20 && gDiff > 0x20 && bDiff > 0x20)) {
               if (upperEdge == -1) {
                   upperEdge = y;
-              } else if (lowerEdge == -1) {
+              } else if (lowerEdge == -1 && (y - upperEdge) > rect.bottom/100) { // 增加最小间距
                   lowerEdge = y;
-                  // 增加最小滑块高度检查（Windows 11可能有更小的滚动条）
-                  if (lowerEdge - upperEdge < rect.bottom / 50) continue;
-                  break;
+                  // 新增二次验证
+                  if (lowerEdge - upperEdge < rect.bottom / 30) { // 过滤过小的误判
+                      upperEdge = y; // 重新开始检测
+                      lowerEdge = -1;
+                  } else {
+                      break;
+                  }
               }
           }
         }
