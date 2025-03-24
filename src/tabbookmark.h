@@ -10,9 +10,10 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+int custom_wheel_delta = 1;
+#define SMOOTH_FACTOR 0.8f        // 调整平滑因子为0.8
+#define SCROLL_THRESHOLD 0.03f    // 降低滚动阈值
+#define FRAME_DURATION 16.67f     // 新增60FPS的帧时长(约16.67ms)
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -273,17 +274,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int upperEdge = -1;
-      int lowerEdge = -1;
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;
-      bool isDarkMode = false;  // 新增深色模式标志
+      LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
           long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          isDarkMode = (totalBrightness / (y+1) < 128);  // 记录当前模式
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -293,20 +294,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               }
           }
         }
-        prevColor = color;
+      prevColor = color;
       }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
-      // 新增调试输出
-      wchar_t debugMsg[256];
-      swprintf_s(debugMsg, L"[Scroll] Mode: %s, Upper: %d, Lower: %d, Height: %d",
-                isDarkMode ? L"Dark" : L"Light", 
-                upperEdge, 
-                lowerEdge, 
-                scrollbarHeight);
-      OutputDebugString(debugMsg);
 
       // 计算动态滚动量
       float ratio = 0.0f;
@@ -315,14 +308,19 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
+      static DWORD lastScrollTime = 0;  // 新增时间记录
+      DWORD currentTime = GetTickCount();
+      float deltaTime = (currentTime - lastScrollTime) / FRAME_DURATION;
+
+      if (deltaTime >= 1.0f) {
         if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
+            lastY = client_pt.y;
+            remainder = 0;
         }
         
-        // 带插值的平滑计算
+        // 基于时间的平滑计算
         LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR * deltaTime;
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
@@ -332,14 +330,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
-        }
+      }
 
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
+      if (actualScroll != 0) {
+        int scrollAmount = actualScroll * custom_wheel_delta;
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                  MAKEWPARAM(0, scrollAmount),
+                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        lastScrollTime = currentTime;  // 更新时间戳
+      }
+    }
         
         lastY = client_pt.y;
 
