@@ -12,7 +12,7 @@ HHOOK mouse_hook = nullptr;
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 1.0f     // 降低滚动阈值（原0.5）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -327,10 +327,29 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 改为发送鼠标拖动消息
+          static POINT dragStartPos = {0};
+          static BOOL isDragging = FALSE;
+          
+          if (!isDragging) {
+            // 模拟鼠标左键按下
+            SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 
+                       MAKELPARAM(client_pt.x, client_pt.y));
+            dragStartPos = client_pt;
+            isDragging = TRUE;
+          }
+
+          // 计算拖动距离（反向滚动）
+          int deltaY = (client_pt.y - dragStartPos.y) * 2; // 加速因子
+          
+          // 发送鼠标移动消息（带左键按下状态）
+          SendMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, 
+                     MAKELPARAM(client_pt.x, client_pt.y + deltaY));
+        } else if (isDragging) {
+          // 释放鼠标左键
+          SendMessage(hwnd, WM_LBUTTONUP, 0, 
+                     MAKELPARAM(client_pt.x, client_pt.y));
+          isDragging = FALSE;
         }
         
         lastY = client_pt.y;
