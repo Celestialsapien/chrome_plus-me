@@ -273,36 +273,23 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
       // 分析颜色差异
-      int upperEdge = -1;
-      int lowerEdge = -1;
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;
+      LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
-          // 增强型颜色差异计算
-          long avgBrightness = totalBrightness / (y+1);
-          long threshold = (avgBrightness < 96) ? 0x0A0A0A : 0x151515; // 降低阈值
-          int colorDiff = abs(static_cast<int>(color - prevColor));
-          
-          // 新增通道差异检测
-          int rDiff = abs(GetRValue(color) - GetRValue(prevColor));
-          int gDiff = abs(GetGValue(color) - GetGValue(prevColor));
-          int bDiff = abs(GetBValue(color) - GetBValue(prevColor));
-          
-          if (colorDiff > threshold || (rDiff > 0x20 && gDiff > 0x20 && bDiff > 0x20)) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
-              } else if (lowerEdge == -1 && (y - upperEdge) > rect.bottom/100) { // 增加最小间距
+              } else {
                   lowerEdge = y;
-                  // 新增二次验证
-                  if (lowerEdge - upperEdge < rect.bottom / 30) { // 过滤过小的误判
-                      upperEdge = y; // 重新开始检测
-                      lowerEdge = -1;
-                  } else {
-                      break;
-                  }
+                  break;
               }
           }
         }
@@ -340,10 +327,19 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 分解单次滚动为多次小幅度滚动
+          int steps = abs(actualScroll);
+          int direction = actualScroll > 0 ? 1 : -1;
+          
+          for (int i = 0; i < steps; ++i) {
+              // 每次发送基础单位量，保持总滚动量不变
+              int scrollAmount = direction * custom_wheel_delta;
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, scrollAmount),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              // 添加短暂间隔保证动画连贯性
+              Sleep(10); 
+          }
         }
         
         lastY = client_pt.y;
