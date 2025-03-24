@@ -242,6 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static POINT dragStartPos = {0};
+    static BOOL isDragging = FALSE;
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -327,17 +329,21 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 改为发送鼠标拖动消息
-          static POINT dragStartPos = {0};
-          static BOOL isDragging = FALSE;
-          
           if (!isDragging) {
-            // 模拟鼠标左键按下
             SendMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 
                        MAKELPARAM(client_pt.x, client_pt.y));
             dragStartPos = client_pt;
             isDragging = TRUE;
           }
+
+          int deltaY = (client_pt.y - dragStartPos.y) * 2;
+          SendMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, 
+                     MAKELPARAM(client_pt.x, client_pt.y + deltaY));
+        } else if (isDragging) {
+          SendMessage(hwnd, WM_LBUTTONUP, 0, 
+                     MAKELPARAM(client_pt.x, client_pt.y));
+          isDragging = FALSE;
+        }
 
           // 计算拖动距离（反向滚动）
           int deltaY = (client_pt.y - dragStartPos.y) * 2; // 加速因子
