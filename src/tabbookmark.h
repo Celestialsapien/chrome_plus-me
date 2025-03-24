@@ -324,6 +324,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 GetRValue(RGB(pixels[2], pixels[1], pixels[0])),
                 GetGValue(RGB(pixels[2], pixels[1], pixels[0])),
                 GetBValue(RGB(pixels[2], pixels[1], pixels[0])));
+                OutputDebugString(debugMsg);
 
       // 计算动态滚动量
       float ratio = 0.0f;
