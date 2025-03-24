@@ -1,4 +1,5 @@
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -8,12 +9,16 @@ HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
 
+// 在文件顶部添加手势常量定义
+#define GC_ALLGESTURES      0x00000001
+#define WM_GESTURE         0x0119
+#define WM_GESTURENOTIFY   0x011A
+#define GID_PAN            0x00000001
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;
-#define SMOOTH_FACTOR 0.8f        // 调整平滑因子为0.8
-#define SCROLL_THRESHOLD 0.03f    // 降低滚动阈值
-#define FRAME_DURATION 16.67f     // 新增60FPS的帧时长(约16.67ms)
+int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+#define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -308,19 +313,14 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
-      static DWORD lastScrollTime = 0;  // 新增时间记录
-      DWORD currentTime = GetTickCount();
-      float deltaTime = (currentTime - lastScrollTime) / FRAME_DURATION;
-
-      if (deltaTime >= 1.0f) {
         if (lastY == -1) {
-            lastY = client_pt.y;
-            remainder = 0;
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
         }
         
-        // 基于时间的平滑计算
+        // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR * deltaTime;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
@@ -330,16 +330,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (abs(remainder) >= SCROLL_THRESHOLD) {
           actualScroll += (remainder > 0) ? 1 : -1;
           remainder -= (remainder > 0) ? 1 : -1;
-      }
+        }
 
-      if (actualScroll != 0) {
-        int scrollAmount = actualScroll * custom_wheel_delta;
-        SendMessage(hwnd, WM_MOUSEWHEEL, 
-                  MAKEWPARAM(0, scrollAmount),
-                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        lastScrollTime = currentTime;  // 更新时间戳
-      }
-    }
+        if (actualScroll != 0) {
+          // 改用触摸惯性滚动
+          GESTUREINFO gi = {0};
+          gi.cbSize = sizeof(GESTUREINFO);
+          gi.dwFlags = GF_BEGIN;
+          gi.dwID = GID_PAN;
+          gi.ullArguments = actualScroll * custom_wheel_delta;
+          SendMessage(hwnd, WM_GESTURE, 0, (LPARAM)&gi);
+
+          gi.dwFlags = GF_INERTIA | GF_END;  // 启用惯性滚动
+          SendMessage(hwnd, WM_GESTURE, 0, (LPARAM)&gi);
+        }
         
         lastY = client_pt.y;
 
