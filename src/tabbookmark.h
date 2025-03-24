@@ -337,8 +337,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           static float velocity = 0;
           velocity += actualScroll * custom_wheel_delta * 2.0f;
           
-          // 初始化触摸信息（使用新定义的宏）
+          // 转换坐标到屏幕坐标系
           POINT startPos = pmouse->pt;
+          ClientToScreen(hwnd, &startPos); // 新增坐标转换
+
           InitializeTouchInjection(1, TOUCH_FEEDBACK_NORMAL);
           
           // 创建触摸点结构
@@ -349,7 +351,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           contact.touchFlags = TOUCH_FLAG_NONE;
           contact.touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION;
           
-          // 设置接触区域
+          // 设置接触区域（使用屏幕坐标）
           contact.rcContact.left = startPos.x - 2;
           contact.rcContact.top = startPos.y - 2;
           contact.rcContact.right = startPos.x + 2;
@@ -364,6 +366,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           for(int i = 0; velocity != 0 && i < 50; i++) {
               delta = velocity;
               startPos.y -= static_cast<int>(delta);
+              
+              // 限制坐标范围（新增边界检查）
+              startPos.y = max(0, min(startPos.y, GetSystemMetrics(SM_CYSCREEN) - 1));
               
               contact.pointerInfo.pointerFlags = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE;
               contact.rcContact.top = startPos.y - 2;
