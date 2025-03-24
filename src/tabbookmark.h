@@ -12,7 +12,7 @@ HHOOK mouse_hook = nullptr;
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
+#define SCROLL_THRESHOLD 0.01f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -316,22 +316,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         LONG delta = lastY - client_pt.y;
         float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 新增：即使无实际滚动也检查余量
+        if (actualScroll == 0 && abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll = (remainder > 0) ? 1 : -1;
+          remainder -= actualScroll;
+      }
+      // 修改原有阈值判断为独立条件
+      else if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+      }
+
+        // 新增最小滚动量处理
         if (actualScroll != 0) {
-          // 改为浮点计算保留余数
-          static float scroll_remainder = 0.0f;
-          float scrollAmount = actualScroll * custom_wheel_delta + scroll_remainder;
+          // 保证至少1像素的滚动量
+          int effectiveScroll = actualScroll == 0 ? (delta > 0 ? 1 : -1) : actualScroll;
+          int scrollAmount = effectiveScroll * custom_wheel_delta;
           
-          // 分离整数和小数部分
-          int actualWheel = static_cast<int>(scrollAmount);
-          scroll_remainder = scrollAmount - actualWheel;
-          
-          // 动态调整滚动量（保持原有逻辑但使用浮点）
-          if (actualWheel != 0) {
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, actualWheel),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          // 拆分大滚动量为多次小事件
+          while(abs(scrollAmount) > 0) {
+              int chunk = scrollAmount > 0 ? min(120, scrollAmount) : max(-120, scrollAmount);
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, chunk),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              scrollAmount -= chunk;
+              // 添加微小延迟保证动画连贯
+              Sleep(1); 
           }
-        }
+      }
         
         lastY = client_pt.y;
 
