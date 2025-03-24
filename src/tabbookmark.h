@@ -11,9 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;
-#define SMOOTH_FACTOR 0.92f        // 提高平滑因子增强惯性（原0.75）
-#define SCROLL_THRESHOLD 0.01f     // 更低阈值（原0.05）
-#define INERTIA_DECAY 0.96f        // 新增惯性衰减系数
+#define SMOOTH_FACTOR 0.85f        // 提高平滑因子增强连贯性（原0.75）
+#define SCROLL_THRESHOLD 0.03f     // 降低滚动阈值捕捉更小的余量（原0.05）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -301,36 +300,42 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
       }
 
-      // 改进后的平滑计算
-    if (lastY != -1) {
-      static float velocity = 0.0f;  // 新增速度跟踪
-      LONG delta = lastY - client_pt.y;
-      
-      // 带惯性的平滑计算
-      velocity = (delta + velocity) * SMOOTH_FACTOR;
-      float smoothedDelta = velocity * INERTIA_DECAY;
-      
-      // 更精细的余量处理
-      int actualScroll = static_cast<int>(smoothedDelta);
-      remainder = smoothedDelta - actualScroll;
-      
-      // 动态调整阈值（基于当前速度）
-      float dynamicThreshold = SCROLL_THRESHOLD * (1.0f + fabs(velocity)/5.0f);
-      if (fabs(remainder) >= dynamicThreshold) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+      // 计算动态滚动量
+      float ratio = 0.0f;
+      if (scrollbarHeight > 0) {
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
       }
 
-      if (actualScroll != 0) {
-          // 更细腻的滚动量计算
-          int scrollAmount = actualScroll * max(1, custom_wheel_delta); 
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
+        }
+        
+        // 带插值的平滑计算
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 调整后的余量处理逻辑
+        if (actualScroll == 0 && abs(remainder) > 0.001f) {
+          // 当实际滚动量为零但有余量时，累积余量到下一次
+          break; 
+        } else if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
+
+        // 增加最小滚动量判断（即使actualScroll为0但有余量也发送）
+        if (actualScroll != 0 || abs(remainder) > 0.5f) {
+          int scrollAmount = actualScroll * max(1, custom_wheel_delta); // 确保最小滚动量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          // 保留部分惯性
-          velocity = remainder * 0.8f;  
-      }
-    }
+        }
         
         lastY = client_pt.y;
 
