@@ -323,7 +323,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
       if (actualScroll != 0) {
           // 更细腻的滚动量计算
-          int scrollAmount = actualScroll * max(1, custom_wheel_delta / 3); 
+          int scrollAmount = actualScroll * max(1, custom_wheel_delta); 
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
