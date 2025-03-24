@@ -1,13 +1,8 @@
 #pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "user32.lib")  // 新增手势库支持
-
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <windows.h>
-#include <winuser.h>       // 新增触摸相关头文件
 
 HHOOK mouse_hook = nullptr;
 
@@ -254,7 +249,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
-      RegisterTouchWindow(hwnd, TWF_WANTPALM);  // 在此处注册触摸窗口
       RECT rect;
       GetClientRect(hwnd, &rect);
       
@@ -333,21 +327,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 改为发送触摸滚动消息
-          SendMessage(hwnd, WM_GESTURE, 
-                     MAKEWPARAM(GID_PAN, 0),
-                     MAKELPARAM(
-                         (short)(pmouse->pt.x), 
-                         (short)(pmouse->pt.y)));
+          // 添加速度衰减因子（当滚动量较小时应用更平滑的减速）
+          float decay = (abs(actualScroll) > 2) ? 1.0f : (0.4f + abs(actualScroll)*0.3f);
+          int scrollAmount = static_cast<int>(actualScroll * custom_wheel_delta * decay);
           
-          // 发送滚动增量值
-          GESTUREINFO gi = {0};
-          gi.cbSize = sizeof(GESTUREINFO);
-          gi.dwFlags = GF_BEGIN;
-          gi.dwID = GID_PAN;
-          gi.ullArguments = (DWORD)(scrollAmount); // WHEEL_DELTA单位
-          SendMessage(hwnd, WM_GESTURENOTIFY, 0, (LPARAM)&gi);
+          // 保持总滚动距离不变的前提下分配余量
+          remainder += (actualScroll * (1 - decay)) * custom_wheel_delta / 120.0f;
+          
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
