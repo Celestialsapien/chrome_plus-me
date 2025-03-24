@@ -286,7 +286,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
       
       // 计算平均亮度并确定模式
-      int avgBrightness = totalBrightness / rect.bottom;
       isDarkMode = avgBrightness < 128;
       long threshold = isDarkMode ? 0x101010 : 0x202020;
       
