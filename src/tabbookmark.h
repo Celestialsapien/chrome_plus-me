@@ -242,7 +242,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static int accumulatedDelta = 0;  // 新增滚动脉冲累积器
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -328,14 +327,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          accumulatedDelta += actualScroll * custom_wheel_delta;
-if (abs(accumulatedDelta) >= 120) {
-    int fullSteps = accumulatedDelta / 120;
-    accumulatedDelta %= 120;
-    SendMessage(hwnd, WM_MOUSEWHEEL, 
-                MAKEWPARAM(0, 120 * fullSteps * (actualScroll > 0 ? 1 : -1)),
-                MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-}
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          static bool middleButtonDown = false;  // 新增中键状态跟踪
+          
+          if (custom_wheel_delta >= 120) {
+            // 保持原有滚动方式
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, scrollAmount),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          } else {
+            // 新增中键滚动逻辑
+            if (!middleButtonDown) {
+              // 按下中键
+              mouse_event(MOUSEEVENTF_MIDDLEDOWN, pmouse->pt.x, pmouse->pt.y, 0, 0);
+              middleButtonDown = true;
+            }
+            // 根据滚动方向移动鼠标
+            mouse_event(MOUSEEVENTF_MOVE, 
+                       (actualScroll > 0) ? -scrollAmount : scrollAmount, 
+                       0, 0, 0);
+          }
+          
+          // 当检测到鼠标停止时松开中键
+          static POINT lastPt = pmouse->pt;
+          if (pmouse->pt.x == lastPt.x && pmouse->pt.y == lastPt.y && middleButtonDown) {
+            mouse_event(MOUSEEVENTF_MIDDLEUP, pmouse->pt.x, pmouse->pt.y, 0, 0);
+            middleButtonDown = false;
+          }
+          lastPt = pmouse->pt;
         }
         
         lastY = client_pt.y;
