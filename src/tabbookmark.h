@@ -3,6 +3,7 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <winuser.h>
 
 HHOOK mouse_hook = nullptr;
 
@@ -327,16 +328,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 恢复原始滚动方式，并优化滚动步长
           int scrollAmount = actualScroll * custom_wheel_delta;
-          // 将单次滚动分解为多次小步滚动
-          int steps = max(1, abs(scrollAmount) / 4);  // 增加滚动步数
-          int step = scrollAmount / steps;
-          for(int i = 0; i < steps; i++) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                          MAKEWPARAM(0, step),
-                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
+          // 使用平滑滚动API
+          MOUSEINPUT mi = {0};
+          mi.dx = 0;
+          mi.dy = 0;
+          mi.mouseData = scrollAmount;
+          mi.dwFlags = MOUSEEVENTF_WHEEL | MOUSEEVENTF_HWHEEL;
+          mi.time = 0;
+          SendInput(1, (LPINPUT)&mi, sizeof(INPUT));
         }
         
         lastY = client_pt.y;
