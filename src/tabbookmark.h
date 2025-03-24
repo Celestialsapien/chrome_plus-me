@@ -10,10 +10,10 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.85f        // 提高平滑因子
-#define SCROLL_THRESHOLD 0.02f     // 更低的触发阈值
-#define MIN_SCROLL_STEP 30         // 最小滚动单位
+int custom_wheel_delta = 1;
+#define SMOOTH_FACTOR 0.45f        // 调整平滑因子（原0.75）
+#define SCROLL_THRESHOLD 0.08f     // 优化滚动阈值（原0.05）
+#define MIN_VELOCITY 0.5f          // 新增最小速度阈值
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -313,37 +313,32 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           remainder = 0;  // 重置剩余量
         }
         
-        // 带插值的平滑计算
+        // 带速度检测的平滑计算
         LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        float velocity = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
+        // 累积剩余量并计算实际滚动
+        remainder += velocity - static_cast<int>(velocity);
+        int actualScroll = static_cast<int>(velocity);
         
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
+        // 新增：速度过滤和剩余量处理
+        if (abs(velocity) < MIN_VELOCITY) {
+            actualScroll = 0; // 过滤微小运动
+        } 
+        else if (abs(remainder) >= SCROLL_THRESHOLD) {
+            actualScroll += (remainder > 0) ? 1 : -1;
+            remainder -= (remainder > 0) ? 1 : -1;
         }
 
         if (actualScroll != 0) {
-          // 改进小步滚动处理
-          int baseDelta = 120; // 系统标准滚动单位
           int scrollAmount = actualScroll * custom_wheel_delta;
+          // 新增：动态调整系数优化
+          float adjustment = min(0.5f, 0.3f + ratio * 0.05f);
+          custom_wheel_delta = max(1, (int)(ratio * adjustment));
           
-          // 分解为多个标准滚动事件
-          while(abs(scrollAmount) >= baseDelta/4) { // 分解为1/4标准单位
-            int step = (scrollAmount > 0) ? baseDelta/4 : -baseDelta/4;
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, step),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-            scrollAmount -= step;
-            // 添加微小延迟改善动画连贯性
-            Sleep(1); 
-          }
-          // 累积未处理的余量
-          remainder += (float)scrollAmount / custom_wheel_delta;
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
         
         lastY = client_pt.y;
