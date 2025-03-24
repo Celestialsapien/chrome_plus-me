@@ -3,6 +3,8 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <winuser.h>
+#include <peninputpanel_i.c>
 
 HHOOK mouse_hook = nullptr;
 
@@ -13,8 +15,6 @@ HHOOK mouse_hook = nullptr;
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 0.75f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.05f     // 降低滚动阈值（原0.5）
-#define INERTIA_DECELERATION 0.92f  // 惯性衰减系数
-#define SCROLL_UPDATE_INTERVAL 10   // 滚动更新间隔(ms)
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -329,28 +329,51 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 改用滚动条控制+惯性算法
+          // 改用触摸注入API
           static float velocity = 0;
-          velocity += actualScroll * custom_wheel_delta * 0.5f;
+          velocity += actualScroll * custom_wheel_delta * 2.0f;
           
-          // 启动惯性滚动定时器
-          SetTimer(hwnd, 1, SCROLL_UPDATE_INTERVAL, [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time){
-              SCROLLINFO si = {sizeof(SCROLLINFO), SIF_ALL};
-              GetScrollInfo(hwnd, SB_VERT, &si);
+          // 初始化触摸信息
+          POINT startPos = pmouse->pt;
+          InitializeTouchInjection(1, TOUCH_FEEDBACK_NORMAL);
+          
+          // 创建触摸点结构
+          POINTER_TOUCH_INFO contact;
+          memset(&contact, 0, sizeof(POINTER_TOUCH_INFO));
+          contact.pointerInfo.pointerType = PT_TOUCH;
+          contact.pointerInfo.pointerId = 0;
+          contact.touchFlags = TOUCH_FLAG_NONE;
+          contact.touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION;
+          
+          // 设置接触区域
+          contact.rcContact.left = startPos.x - 2;
+          contact.rcContact.top = startPos.y - 2;
+          contact.rcContact.right = startPos.x + 2;
+          contact.rcContact.bottom = startPos.y + 2;
+          
+          // 开始触摸
+          contact.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE;
+          InjectTouchInput(1, &contact);
+          
+          // 模拟惯性滑动
+          float delta = 0;
+          for(int i = 0; velocity != 0 && i < 50; i++) {
+              delta = velocity;
+              startPos.y -= static_cast<int>(delta);
               
-              // 应用速度
-              int newPos = si.nPos + static_cast<int>(velocity);
-              velocity *= INERTIA_DECELERATION; // 速度衰减
+              contact.pointerInfo.pointerFlags = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE;
+              contact.rcContact.top = startPos.y - 2;
+              contact.rcContact.bottom = startPos.y + 2;
+              InjectTouchInput(1, &contact);
               
-              // 限制位置范围
-              newPos = max(min(newPos, si.nMax - (int)si.nPage + 1), si.nMin);
-              
-              // 发送滚动消息
-              SendMessage(hwnd, WM_VSCROLL, 
-                         MAKEWPARAM(SB_THUMBTRACK, newPos), 0);
-              
-              if(fabs(velocity) < 1.0f) KillTimer(hwnd, id);
-          });
+              velocity *= INERTIA_DECELERATION;
+              if(fabs(velocity) < 1.0f) break;
+              Sleep(SCROLL_UPDATE_INTERVAL);
+          }
+          
+          // 结束触摸
+          contact.pointerInfo.pointerFlags = POINTER_FLAG_UP;
+          InjectTouchInput(1, &contact);
         }
         
         lastY = client_pt.y;
