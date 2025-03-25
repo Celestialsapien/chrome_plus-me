@@ -244,19 +244,19 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static float remainder = 0;  // 新增剩余量用于平滑滚动
     static int accumulatedScroll = 0;  // 新增：累计滚动量
     static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
-    static bool isScrolling = false;  // 新增：是否正在滚动
-    // 新增：定时滚动处理
-    if (accumulatedScroll != 0 && GetTickCount() - lastScrollTime >= 1) {
-      int scrollStep = (accumulatedScroll > 0) ? min(10, accumulatedScroll) : max(-10, accumulatedScroll);
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      SendMessage(hwnd, WM_MOUSEWHEEL, 
+    static HWND scrollHwnd = nullptr;    // 新增：保存滚动窗口句柄
+    static POINT scrollPt = {0};         // 新增：保存滚动坐标
+    // 新增：处理累积滚动 (移动到主循环顶部)
+    if (accumulatedScroll != 0 && scrollHwnd) {
+      DWORD currentTime = GetTickCount();
+      if (currentTime - lastScrollTime >= 1) {
+        int scrollStep = (accumulatedScroll > 0) ? 10 : -10;
+        SendMessage(scrollHwnd, WM_MOUSEWHEEL,
                   MAKEWPARAM(0, scrollStep),
-                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      accumulatedScroll -= scrollStep;
-      lastScrollTime = GetTickCount();
-      isScrolling = true;
-    } else if (accumulatedScroll == 0 && isScrolling) {
-      isScrolling = false;  // 滚动完成
+                  MAKELPARAM(scrollPt.x, scrollPt.y));
+        accumulatedScroll -= scrollStep;
+        lastScrollTime = currentTime;
+      }
     }
 
     if (wParam == WM_NCMOUSEMOVE) {
@@ -345,12 +345,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta;
+          
           if (abs(scrollAmount) >= 120) {
             SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           } else {
-            accumulatedScroll += scrollAmount;  // 加入累计滚动量
+            accumulatedScroll += scrollAmount;
+            scrollHwnd = hwnd;           // 保存当前窗口信息
+            scrollPt = pmouse->pt;        // 保存当前坐标
+            lastScrollTime = GetTickCount(); // 重置计时器
           }
         }
         
