@@ -3,8 +3,6 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <winuser.h>
-#include <pointerinput.h>
 
 HHOOK mouse_hook = nullptr;
 
@@ -329,22 +327,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          // 使用 POINTER 消息实现平滑滚动
-          POINTER_TYPE_INFO pointerInfo = {0};
-          pointerInfo.type = PT_MOUSE;
-          pointerInfo.penInfo.pointerFlags = POINTER_FLAG_WHEEL;
-          pointerInfo.penInfo.mouseData = scrollAmount * WHEEL_DELTA;
-          
-          // 发送高精度滚动消息
-          if (InitializeTouchInjection(1, TOUCH_FEEDBACK_DEFAULT)) {
-              InjectTouchInput(1, reinterpret_cast<POINTER_TOUCH_INFO*>(&pointerInfo));
-          }
-          
-          // 保留原有消息兼容性
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      }
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          // 替换原来的 WM_MOUSEWHEEL 消息
+          RECT rect;
+          GetClientRect(hwnd, &rect);
+          ScrollWindowEx(hwnd, 0, -scrollAmount, &rect, &rect, nullptr, nullptr, SW_INVALIDATE | SW_ERASE);
+          UpdateWindow(hwnd);
+        }
         
         lastY = client_pt.y;
 
