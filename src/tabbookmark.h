@@ -340,25 +340,25 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           } else {
             // 小滚动量加入累计滚动量
             accumulatedScroll += scrollAmount;
-    
+            
             // 如果累计滚动量超过120，立即滚动
             if (abs(accumulatedScroll) >= 120) {
-                SendMessage(hwnd, WM_MOUSEWHEEL, 
-                            MAKEWPARAM(0, accumulatedScroll),
-                            MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-                accumulatedScroll = 0;
-                lastScrollTime = 0;
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, accumulatedScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              accumulatedScroll = 0;
+              lastScrollTime = 0;
             } else {
-                // 基于系统时间的定时滚动处理
-                DWORD currentTime = GetTickCount();
-                while (abs(accumulatedScroll) > 0) {
-                    int scrollStep = (accumulatedScroll > 0) ? min(7, accumulatedScroll) : max(-7, accumulatedScroll);
-                    SendMessage(hwnd, WM_MOUSEWHEEL, 
-                                MAKEWPARAM(0, scrollStep),
-                                MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-                    accumulatedScroll -= scrollStep;
-                    Sleep(1);  // 每1ms处理一次
-                }
+              // 定时滚动处理
+              DWORD currentTime = GetTickCount();
+              if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
+                int scrollStep = (accumulatedScroll > 0) ? 16 : -16;
+                SendMessage(hwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, scrollStep),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                accumulatedScroll -= scrollStep;
+                lastScrollTime = currentTime;
+              }
             }
           }
         }
