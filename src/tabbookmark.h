@@ -327,15 +327,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; 
-          // 新增条件判断：当计算值绝对值不超过120时使用原始滚动量
-          if (abs(scrollAmount) <= 120) {
-              scrollAmount = actualScroll;
-          }
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      }
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          // 使用自定义滚动量直接发送滚轮事件
+          SetCursorPos(pmouse->pt.x, pmouse->pt.y);
+          mouse_event(MOUSEEVENTF_WHEEL, 0, 0, scrollAmount, 0); // 移除了* WHEEL_DELTA
+        }
         
         lastY = client_pt.y;
 
