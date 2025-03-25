@@ -352,7 +352,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               // 定时滚动处理
               DWORD currentTime = GetTickCount();
               if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
-                int scrollStep = (accumulatedScroll > 0) ? 10 : -10;
+                int scrollStep = (accumulatedScroll > 0) ? 1 : -1;
                 SendMessage(hwnd, WM_MOUSEWHEEL, 
                           MAKEWPARAM(0, scrollStep),
                           MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
