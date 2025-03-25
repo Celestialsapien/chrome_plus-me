@@ -3,6 +3,7 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
+#include <UIAutomation.h>
 
 HHOOK mouse_hook = nullptr;
 
@@ -329,22 +330,34 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           
-          // 获取当前滚动位置
-          SCROLLINFO si = {0};
-          si.cbSize = sizeof(SCROLLINFO);
-          si.fMask = SIF_POS;
-          GetScrollInfo(hwnd, SB_VERT, &si);
-          
-          // 计算新位置
-          int newPos = si.nPos - scrollAmount;
-          
-          // 设置新位置
-          si.nPos = newPos;
-          si.fMask = SIF_POS;
-          SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
-          
-          // 发送滚动消息
-          SendMessage(hwnd, WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, newPos), 0);
+          // 尝试使用UI Automation进行滚动
+          IUIAutomation* pAutomation = nullptr;
+          CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pAutomation));
+          if (pAutomation) {
+            IUIAutomationElement* pElement = nullptr;
+            pAutomation->ElementFromHandle(hwnd, &pElement);
+            if (pElement) {
+              IUIAutomationScrollPattern* pScrollPattern = nullptr;
+              pElement->GetCurrentPattern(UIA_ScrollPatternId, (IUnknown**)&pScrollPattern);
+              if (pScrollPattern) {
+                // 获取当前滚动位置
+                double scrollPercent = 0;
+                pScrollPattern->get_VerticalScrollPercent(&scrollPercent);
+                
+                // 计算新的滚动位置
+                double newScrollPercent = scrollPercent - (scrollAmount / 100.0);
+                newScrollPercent = max(0.0, min(100.0, newScrollPercent));
+                
+                // 执行滚动
+                pScrollPattern->Scroll(ScrollAmount_NoAmount, ScrollAmount_LargeIncrement);
+                pScrollPattern->SetScrollPercent(UIA_ScrollPatternNoScroll, newScrollPercent);
+                
+                pScrollPattern->Release();
+              }
+              pElement->Release();
+            }
+            pAutomation->Release();
+          }
         }
         
         lastY = client_pt.y;
