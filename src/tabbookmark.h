@@ -359,18 +359,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       }
       break;
     }
-    // 新增：独立处理累积滚动（放在消息处理之后）
-    if (accumulatedScroll != 0 && scrollHwnd) {
-      DWORD currentTime = GetTickCount();
-      if (currentTime - lastScrollTime >= 1) {
-        int step = (accumulatedScroll > 0) ? 10 : -10;
-        SendMessage(scrollHwnd, WM_MOUSEWHEEL,
-                  MAKEWPARAM(0, step),
-                  MAKELPARAM(scrollPt.x, scrollPt.y));
-        accumulatedScroll -= step;
-        lastScrollTime = currentTime;
-      }
-    }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
@@ -413,6 +401,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     if (HandleBookmark(wParam, pmouse)) {
       return 1;
+    }
+    // 新增：独立处理累积滚动（放在消息处理之后）
+    if (accumulatedScroll != 0 && scrollHwnd) {
+      DWORD currentTime = GetTickCount();
+      if (currentTime - lastScrollTime >= 1) {
+        int step = (accumulatedScroll > 0) ? 10 : -10;
+        SendMessage(scrollHwnd, WM_MOUSEWHEEL,
+                  MAKEWPARAM(0, step),
+                  MAKELPARAM(scrollPt.x, scrollPt.y));
+        accumulatedScroll -= step;
+        lastScrollTime = currentTime;
+      }
     }
   } while (0);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
