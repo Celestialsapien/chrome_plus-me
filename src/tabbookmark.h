@@ -243,7 +243,22 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
     static int accumulatedScroll = 0;  // 新增：累计滚动量
+    static UINT_PTR timerId = 0;  // 新增定时器ID
     
+    // 定时器回调函数
+    auto TimerProc = [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
+      if (accumulatedScroll != 0) {
+        int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
+        SendMessage(hwnd, WM_MOUSEWHEEL, 
+                  MAKEWPARAM(0, scrollStep),
+                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        accumulatedScroll -= scrollStep;
+      } else {
+        KillTimer(NULL, timerId);  // 停止定时器
+        timerId = 0;
+      }
+      return;
+    };
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -331,34 +346,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta;
           
-          // 新增滚动逻辑
           if (abs(scrollAmount) >= 120) {
-            // 大滚动量直接发送WM_MOUSEWHEEL
             SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           } else {
-            // 小滚动量加入累计滚动量
             accumulatedScroll += scrollAmount;
             
-            // 如果累计滚动量超过120，立即滚动
-            if (abs(accumulatedScroll) >= 120) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, accumulatedScroll),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll = 0;
-              
-            } else {
-              // 定时滚动处理
-              
-              if (accumulatedScroll != 0) {
-                int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
-                SendMessage(hwnd, WM_MOUSEWHEEL, 
-                          MAKEWPARAM(0, scrollStep),
-                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-                accumulatedScroll -= scrollStep;
-                
-              }
+            if (timerId == 0) {  // 如果定时器未启动
+              timerId = SetTimer(NULL, 0, 1, TimerProc);  // 启动1ms定时器
             }
           }
         }
