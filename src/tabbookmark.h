@@ -243,7 +243,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
     static int accumulatedScroll = 0;  // 新增：累计滚动量
-    static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
+    
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -347,17 +347,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         MAKEWPARAM(0, accumulatedScroll),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
               accumulatedScroll = 0;
-              lastScrollTime = 0;
+              
             } else {
               // 定时滚动处理
-              DWORD currentTime = GetTickCount();
-              if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
+              
+              if (accumulatedScroll != 0) {
                 int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
                 SendMessage(hwnd, WM_MOUSEWHEEL, 
                           MAKEWPARAM(0, scrollStep),
                           MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
                 accumulatedScroll -= scrollStep;
-                lastScrollTime = currentTime;
+                
               }
             }
           }
