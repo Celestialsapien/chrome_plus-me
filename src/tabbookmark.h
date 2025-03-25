@@ -327,12 +327,36 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          // 替换原来的 WM_MOUSEWHEEL 消息
+          int scrollAmount = actualScroll * custom_wheel_delta;
+          
+          // 获取窗口DC
+          HDC hdc = GetDC(hwnd);
+          
+          // 创建内存DC
+          HDC hdcMem = CreateCompatibleDC(hdc);
           RECT rect;
           GetClientRect(hwnd, &rect);
-          ScrollWindowEx(hwnd, 0, -scrollAmount, &rect, &rect, nullptr, nullptr, SW_INVALIDATE | SW_ERASE);
+          HBITMAP hBitmap = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
+          SelectObject(hdcMem, hBitmap);
+          
+          // 先绘制到内存DC
+          SendMessage(hwnd, WM_ERASEBKGND, (WPARAM)hdcMem, 0);
+          SendMessage(hwnd, WM_PAINT, (WPARAM)hdcMem, 0);
+          
+          // 执行滚动
+          ScrollWindowEx(hwnd, 0, scrollAmount, &rect, &rect, nullptr, nullptr, SW_INVALIDATE);
+          
+          // 将内存DC内容复制到屏幕
+          BitBlt(hdc, 0, 0, rect.right, rect.bottom, hdcMem, 0, 0, SRCCOPY);
+          
+          // 释放资源
+          DeleteObject(hBitmap);
+          DeleteDC(hdcMem);
+          ReleaseDC(hwnd, hdc);
+          
+          // 强制更新窗口
           UpdateWindow(hwnd);
+          RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
         }
         
         lastY = client_pt.y;
