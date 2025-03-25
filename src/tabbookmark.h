@@ -233,6 +233,27 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+bool SmoothScroll(HWND hwnd, int dx, int dy) {
+  // 设置滚动参数
+  SCROLLINFO si = {0};
+  si.cbSize = sizeof(SCROLLINFO);
+  si.fMask = SIF_POS;
+  GetScrollInfo(hwnd, SB_VERT, &si);
+  
+  // 计算新位置
+  int newPos = si.nPos + dy;
+  
+  // 执行平滑滚动
+  if (ScrollWindowEx(hwnd, dx, -dy, NULL, NULL, NULL, NULL, 
+                    SW_SCROLLCHILDREN | SW_INVALIDATE | SW_SMOOTHSCROLL)) {
+      // 更新滚动条位置
+      si.nPos = newPos;
+      SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+      return true;
+  }
+  return false;
+}
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -327,10 +348,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          // 使用自定义滚动量直接发送滚轮事件
-          SetCursorPos(pmouse->pt.x, pmouse->pt.y);
-          mouse_event(MOUSEEVENTF_WHEEL, 0, 0, scrollAmount, 0); // 移除了* WHEEL_DELTA
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          // 使用平滑滚动API替换原来的SendMessage
+          SmoothScroll(hwnd, 0, scrollAmount);
         }
         
         lastY = client_pt.y;
