@@ -3,7 +3,6 @@
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <UIAutomation.h>
 
 HHOOK mouse_hook = nullptr;
 
@@ -243,6 +242,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static int accumulatedScroll = 0;  // 新增：累计滚动量
+    static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -328,35 +329,37 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          int scrollAmount = actualScroll * custom_wheel_delta;
           
-          // 尝试使用UI Automation进行滚动
-          IUIAutomation* pAutomation = nullptr;
-          CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pAutomation));
-          if (pAutomation) {
-            IUIAutomationElement* pElement = nullptr;
-            pAutomation->ElementFromHandle(hwnd, &pElement);
-            if (pElement) {
-              IUIAutomationScrollPattern* pScrollPattern = nullptr;
-              pElement->GetCurrentPattern(UIA_ScrollPatternId, (IUnknown**)&pScrollPattern);
-              if (pScrollPattern) {
-                // 获取当前滚动位置
-                double scrollPercent = 0;
-                pScrollPattern->get_VerticalScrollPercent(&scrollPercent);
-                
-                // 计算新的滚动位置
-                double newScrollPercent = scrollPercent - (scrollAmount / 100.0);
-                newScrollPercent = max(0.0, min(100.0, newScrollPercent));
-                
-                // 执行滚动
-                pScrollPattern->Scroll(ScrollAmount_NoAmount, ScrollAmount_LargeIncrement);
-                pScrollPattern->SetScrollPercent(UIA_ScrollPatternNoScroll, newScrollPercent);
-                
-                pScrollPattern->Release();
+          // 新增滚动逻辑
+          if (abs(scrollAmount) >= 120) {
+            // 大滚动量直接发送WM_MOUSEWHEEL
+            SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, scrollAmount),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          } else {
+            // 小滚动量加入累计滚动量
+            accumulatedScroll += scrollAmount;
+            
+            // 如果累计滚动量超过120，立即滚动
+            if (abs(accumulatedScroll) >= 120) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, accumulatedScroll),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              accumulatedScroll = 0;
+              lastScrollTime = 0;
+            } else {
+              // 定时滚动处理
+              DWORD currentTime = GetTickCount();
+              if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
+                int scrollStep = (accumulatedScroll > 0) ? 10 : -10;
+                SendMessage(hwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, scrollStep),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                accumulatedScroll -= scrollStep;
+                lastScrollTime = currentTime;
               }
-              pElement->Release();
             }
-            pAutomation->Release();
           }
         }
         
