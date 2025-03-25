@@ -245,19 +245,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static int accumulatedScroll = 0;  // 新增：累计滚动量
     static UINT_PTR timerId = 0;  // 新增定时器ID
     
-    // 定时器回调函数
-    auto TimerProc = [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) {
+    // 修改定时器回调函数
+    auto TimerProc = [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) -> void {
       if (accumulatedScroll != 0) {
+        POINT pt;
+        GetCursorPos(&pt);  // 获取当前鼠标位置
         int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
         SendMessage(hwnd, WM_MOUSEWHEEL, 
                   MAKEWPARAM(0, scrollStep),
-                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                  MAKELPARAM(pt.x, pt.y));
         accumulatedScroll -= scrollStep;
       } else {
-        KillTimer(NULL, timerId);  // 停止定时器
+        KillTimer(NULL, timerId);
         timerId = 0;
       }
-      return;
     };
     if (wParam == WM_NCMOUSEMOVE) {
       break;
@@ -353,8 +354,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           } else {
             accumulatedScroll += scrollAmount;
             
-            if (timerId == 0) {  // 如果定时器未启动
-              timerId = SetTimer(NULL, 0, 1, TimerProc);  // 启动1ms定时器
+            if (timerId == 0) {
+              // 修改SetTimer调用
+              timerId = SetTimer(NULL, 0, 1, (TIMERPROC)TimerProc);
             }
           }
         }
