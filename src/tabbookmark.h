@@ -7,6 +7,8 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+// 在文件顶部添加定时器ID定义
+#define SCROLL_TIMER_ID 1001
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
@@ -233,6 +235,30 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+static int g_accumulatedScroll = 0;
+static HWND g_scrollHwnd = nullptr;
+static POINT g_scrollPoint = {0, 0};
+// 添加定时器处理函数
+VOID CALLBACK ScrollTimerProc(HWND hwnd, UINT message, UINT_PTR idTimer, DWORD dwTime) {
+  if (idTimer == SCROLL_TIMER_ID) {
+    if (abs(g_accumulatedScroll) >= 120) {
+      SendMessage(g_scrollHwnd, WM_MOUSEWHEEL, 
+                MAKEWPARAM(0, g_accumulatedScroll),
+                MAKELPARAM(g_scrollPoint.x, g_scrollPoint.y));
+      g_accumulatedScroll = 0;
+    } else if (abs(g_accumulatedScroll) > 0) {
+      int scrollStep = (g_accumulatedScroll > 0) ? 10 : -10;
+      SendMessage(g_scrollHwnd, WM_MOUSEWHEEL, 
+                MAKEWPARAM(0, scrollStep),
+                MAKELPARAM(g_scrollPoint.x, g_scrollPoint.y));
+      g_accumulatedScroll -= scrollStep;
+    } else {
+      // 没有剩余滚动量时停止定时器
+      KillTimer(nullptr, SCROLL_TIMER_ID);
+    }
+  }
+}
+
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -242,8 +268,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static int accumulatedScroll = 0;  // 新增：累计滚动量
-    static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -331,33 +355,24 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta;
           
-          // 新增滚动逻辑
           if (abs(scrollAmount) >= 120) {
-            // 大滚动量直接发送WM_MOUSEWHEEL
             SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
           } else {
-            // 小滚动量加入累计滚动量
-            accumulatedScroll += scrollAmount;
+            // 更新累计滚动量和窗口信息
+            g_accumulatedScroll += scrollAmount;
+            g_scrollHwnd = hwnd;
+            g_scrollPoint = pmouse->pt;
             
-            // 如果累计滚动量超过120，立即滚动
-            if (abs(accumulatedScroll) >= 120) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, accumulatedScroll),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll = 0;
-              lastScrollTime = 0;
-            } else {
-              // 定时滚动处理
-              DWORD currentTime = GetTickCount();
-              if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
-                int scrollStep = (accumulatedScroll > 0) ? 1 : -1;
-                SendMessage(hwnd, WM_MOUSEWHEEL, 
-                          MAKEWPARAM(0, scrollStep),
-                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-                accumulatedScroll -= scrollStep;
-                lastScrollTime = currentTime;
+            // 启动定时器（如果尚未启动）
+            if (!SetTimer(nullptr, SCROLL_TIMER_ID, 1, ScrollTimerProc)) {
+              // 如果定时器启动失败，立即处理滚动
+              if (abs(g_accumulatedScroll) >= 120) {
+                SendMessage(g_scrollHwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, g_accumulatedScroll),
+                          MAKELPARAM(g_scrollPoint.x, g_scrollPoint.y));
+                g_accumulatedScroll = 0;
               }
             }
           }
@@ -500,6 +515,8 @@ void TabBookmark() {
       SetWindowsHookEx(WH_MOUSE, MouseProc, hInstance, GetCurrentThreadId());
   keyboard_hook = SetWindowsHookEx(WH_KEYBOARD, KeyboardProc, hInstance,
                                    GetCurrentThreadId());
+  // 设置定时器回调
+  SetTimer(nullptr, SCROLL_TIMER_ID, 1, ScrollTimerProc);
 }
 
 #endif  // TABBOOKMARK_H_
