@@ -243,23 +243,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
     static int accumulatedScroll = 0;  // 新增：累计滚动量
-    static UINT_PTR timerId = 0;  // 新增定时器ID
-    
-    // 修改定时器回调函数
-    auto TimerProc = [](HWND hwnd, UINT msg, UINT_PTR id, DWORD time) -> void {
-      if (accumulatedScroll != 0) {
-        POINT pt;
-        GetCursorPos(&pt);  // 获取当前鼠标位置
-        int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
-        SendMessage(hwnd, WM_MOUSEWHEEL, 
-                  MAKEWPARAM(0, scrollStep),
-                  MAKELPARAM(pt.x, pt.y));
-        accumulatedScroll -= scrollStep;
-      } else {
-        KillTimer(NULL, timerId);
-        timerId = 0;
-      }
-    };
+    static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -347,20 +331,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta;
           
-          if (abs(scrollAmount) >= 120) {
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          } else {
-            accumulatedScroll += scrollAmount;
+          // 新增滚动逻辑
+          if (actualScroll != 0) {
+            int scrollAmount = actualScroll * custom_wheel_delta;
             
-            if (timerId == 0) {
-              // 修改SetTimer调用
-              timerId = SetTimer(NULL, 0, 1, (TIMERPROC)TimerProc);
+            if (abs(scrollAmount) >= 120) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                        MAKEWPARAM(0, scrollAmount),
+                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+            } else {
+              accumulatedScroll += scrollAmount;
+              
+              if (abs(accumulatedScroll) >= 120) {
+                SendMessage(hwnd, WM_MOUSEWHEEL, 
+                          MAKEWPARAM(0, accumulatedScroll),
+                          MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                accumulatedScroll = 0;
+                lastScrollTime = 0;
+              }
             }
           }
         }
-        
+        // 新增全局定时滚动处理（无论鼠标是否移动）
+      DWORD currentTime = GetTickCount();
+      if (accumulatedScroll != 0 && 
+          (currentTime - lastScrollTime >= 1)) {
+        int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
+        SendMessage(hwnd, WM_MOUSEWHEEL,
+                  MAKEWPARAM(0, scrollStep),
+                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        accumulatedScroll -= scrollStep;
+        lastScrollTime = currentTime;
+      }
         lastY = client_pt.y;
 
         // 释放资源
