@@ -327,35 +327,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
 
         if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          static bool middleButtonDown = false;  // 新增中键状态跟踪
-          
-          if (custom_wheel_delta >= 120) {
-            // 保持原有滚动方式
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          } else {
-            // 新增中键滚动逻辑
-            if (!middleButtonDown) {
-              // 按下中键
-              mouse_event(MOUSEEVENTF_MIDDLEDOWN, pmouse->pt.x, pmouse->pt.y, 0, 0);
-              middleButtonDown = true;
-            }
-            // 根据滚动方向移动鼠标
-            mouse_event(MOUSEEVENTF_MOVE, 
-                       (actualScroll > 0) ? -scrollAmount : scrollAmount, 
-                       0, 0, 0);
+          int scrollAmount = actualScroll * custom_wheel_delta; 
+          // 新增条件判断：当计算值绝对值不超过120时使用原始滚动量
+          if (abs(scrollAmount) <= 120) {
+              scrollAmount = actualScroll;
           }
-          
-          // 当检测到鼠标停止时松开中键
-          static POINT lastPt = pmouse->pt;
-          if (pmouse->pt.x == lastPt.x && pmouse->pt.y == lastPt.y && middleButtonDown) {
-            mouse_event(MOUSEEVENTF_MIDDLEUP, pmouse->pt.x, pmouse->pt.y, 0, 0);
-            middleButtonDown = false;
-          }
-          lastPt = pmouse->pt;
-        }
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      }
         
         lastY = client_pt.y;
 
