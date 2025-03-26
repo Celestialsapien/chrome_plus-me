@@ -246,6 +246,20 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
     static HWND scrollHwnd = nullptr;
 static POINT scrollPoint = {0};
+// 新增独立滚动处理（移动到所有消息处理之前）
+if (accumulatedScroll != 0 && scrollHwnd) {
+  DWORD currentTime = GetTickCount();
+  if (currentTime - lastScrollTime >= 1) {
+    int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
+    // 强制发送当前累积量（即使小于7）
+    SendMessage(scrollHwnd, WM_MOUSEWHEEL,
+              MAKEWPARAM(0, scrollStep),
+              MAKELPARAM(scrollPoint.x, scrollPoint.y));
+    
+    accumulatedScroll -= scrollStep;
+    lastScrollTime = currentTime;
+  }
+}
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -333,16 +347,20 @@ static POINT scrollPoint = {0};
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta;
           
-          if (abs(scrollAmount) >= 120) {
-            // 大滚动量直接发送
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          } else {
-            // 小滚动量加入累计（不再立即处理）
-            accumulatedScroll += scrollAmount;
-            scrollHwnd = hwnd;  // 保存当前窗口句柄
-            scrollPoint = pmouse->pt; // 保存当前坐标
+          // 修改条件：无论是否达到120都进行累积
+          accumulatedScroll += scrollAmount;
+          scrollHwnd = hwnd;
+          scrollPoint = pmouse->pt;
+          
+          // 立即触发一次滚动处理
+          DWORD currentTime = GetTickCount();
+          if (currentTime - lastScrollTime >= 1) {
+            int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
+            SendMessage(scrollHwnd, WM_MOUSEWHEEL,
+                      MAKEWPARAM(0, scrollStep),
+                      MAKELPARAM(scrollPoint.x, scrollPoint.y));
+            accumulatedScroll -= scrollStep;
+            lastScrollTime = currentTime;
           }
         }
         
@@ -358,24 +376,6 @@ static POINT scrollPoint = {0};
         break; // 直接退出避免后续处理
       }
       break;
-    }
-    // 新增独立滚动处理（放在所有消息处理之后）
-    if (accumulatedScroll != 0 && scrollHwnd) {
-      DWORD currentTime = GetTickCount();
-      if (currentTime - lastScrollTime >= 1) {
-        int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
-        SendMessage(scrollHwnd, WM_MOUSEWHEEL,
-                  MAKEWPARAM(0, scrollStep),
-                  MAKELPARAM(scrollPoint.x, scrollPoint.y));
-        
-        accumulatedScroll -= scrollStep;
-        lastScrollTime = currentTime;
-        
-        // 当余量小于单步时清零
-        if (abs(accumulatedScroll) < 7) {
-          accumulatedScroll = 0;
-        }
-      }
     }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
