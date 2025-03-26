@@ -346,19 +346,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               SendMessage(hwnd, WM_MOUSEWHEEL, 
                         MAKEWPARAM(0, accumulatedScroll),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll = 0;
+              accumulatedScroll -= 120;
               lastScrollTime = 0;
             } else {
               // 定时滚动处理
               DWORD currentTime = GetTickCount();
-              if (lastScrollTime == 0 || currentTime - lastScrollTime >= 1) {
+              if (accumulatedScroll != 0 && (lastScrollTime == 0 || currentTime - lastScrollTime >= 1)) {
                 int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
                 SendMessage(hwnd, WM_MOUSEWHEEL, 
                           MAKEWPARAM(0, scrollStep),
                           MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
                 accumulatedScroll -= scrollStep;
-                lastScrollTime = currentTime;
-                currentTime = GetTickCount();   // 新增：再次获取最新时间
+                lastScrollTime = currentTime - 1;
               }
             }
           }
