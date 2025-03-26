@@ -242,24 +242,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
-    static int accumulatedScroll = 0;  // 新增：累计滚动量
-    static DWORD lastScrollTime = 0;    // 新增：上次滚动时间
-    static HWND scrollHwnd = nullptr;
-static POINT scrollPoint = {0};
-// 新增独立滚动处理（移动到所有消息处理之前）
-if (accumulatedScroll != 0 && scrollHwnd) {
-  DWORD currentTime = GetTickCount();
-  if (currentTime - lastScrollTime >= 1) {
-    int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
-    // 强制发送当前累积量（即使小于7）
-    SendMessage(scrollHwnd, WM_MOUSEWHEEL,
-              MAKEWPARAM(0, scrollStep),
-              MAKELPARAM(scrollPoint.x, scrollPoint.y));
-    
-    accumulatedScroll -= scrollStep;
-    lastScrollTime = currentTime;
-  }
-}
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -331,38 +313,41 @@ if (accumulatedScroll != 0 && scrollHwnd) {
         }
         
         // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+    LONG delta = lastY - client_pt.y;
+    
+    // 新产生的滚动量直接加入余量
+    remainder += delta;
         
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta;
-          
-          // 修改条件：无论是否达到120都进行累积
-          accumulatedScroll += scrollAmount;
-          scrollHwnd = hwnd;
-          scrollPoint = pmouse->pt;
-          
-          // 立即触发一次滚动处理
-          DWORD currentTime = GetTickCount();
-          if (currentTime - lastScrollTime >= 1) {
-            int scrollStep = (accumulatedScroll > 0) ? 7 : -7;
-            SendMessage(scrollHwnd, WM_MOUSEWHEEL,
-                      MAKEWPARAM(0, scrollStep),
-                      MAKELPARAM(scrollPoint.x, scrollPoint.y));
-            accumulatedScroll -= scrollStep;
-            lastScrollTime = currentTime;
-          }
-        }
+        // 处理标准滚动（超过120像素）
+    if (abs(remainder) >= 120) {
+      int direction = (remainder > 0) ? 1 : -1;
+      int scrollAmount = direction * 120; // 标准滚动量
+      SendMessage(hwnd, WM_MOUSEWHEEL,
+                  MAKEWPARAM(0, scrollAmount),
+                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      remainder -= direction * 120;
+  }
+  // 处理缓动滚动
+  else {
+      // 平方缓动计算（余量越大滚动越快）
+      float t = abs(remainder) / 120.0f;
+      int actualScroll = static_cast<int>(remainder * t);
+      
+      // 确保至少滚动1个单位
+      if (actualScroll == 0 && remainder != 0) {
+          actualScroll = (remainder > 0) ? 1 : -1;
+      }
+      
+      // 应用动态滚动量调整
+      int scrollAmount = actualScroll * custom_wheel_delta;
+      
+      if (scrollAmount != 0) {
+          SendMessage(hwnd, WM_MOUSEWHEEL,
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+          remainder -= actualScroll;
+      }
+  }
         
         lastY = client_pt.y;
 
