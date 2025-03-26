@@ -329,25 +329,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
   // 处理缓动滚动
   else {
-      // 平方缓动计算（余量越大滚动越快）
-      float t = abs(remainder) / 120.0f;
-      int actualScroll = static_cast<int>(remainder * t);
-      
-      // 确保至少滚动1个单位
-      if (actualScroll == 0 && remainder != 0) {
-          actualScroll = (remainder > 0) ? 1 : -1;
-      }
-      
-      // 应用动态滚动量调整
-      int scrollAmount = actualScroll * custom_wheel_delta;
-      
-      if (scrollAmount != 0) {
-          SendMessage(hwnd, WM_MOUSEWHEEL,
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          remainder -= actualScroll;
-      }
-  }
+    // 线性缓动计算（固定比例）
+    float easeFactor = 0.3f;  // 降低缓动因子到0.3
+    float step = remainder * easeFactor;
+    
+    // 限制最小步长为0.5像素（保持浮点运算精度）
+    if (abs(step) < 0.5f) {
+        step = (remainder > 0) ? 0.5f : -0.5f;
+    }
+    
+    // 应用动态滚动量调整（保持浮点运算）
+    float scrollAmount = step * custom_wheel_delta;
+    
+    if (abs(scrollAmount) >= 1.0f) {
+        // 将浮点滚动量转换为Windows标准滚动单位（120单位=1行）
+        int windowsScroll = static_cast<int>(scrollAmount * 120.0f);
+        SendMessage(hwnd, WM_MOUSEWHEEL,
+                    MAKEWPARAM(0, windowsScroll),
+                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        remainder -= step;  // 使用浮点精度减少余量
+    }
+}
         
         lastY = client_pt.y;
 
