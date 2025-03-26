@@ -357,7 +357,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                           MAKEWPARAM(0, scrollStep),
                           MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
                 accumulatedScroll -= scrollStep;
-                lastScrollTime = currentTime - 1;
+                lastScrollTime = currentTime;
               }
             }
           }
