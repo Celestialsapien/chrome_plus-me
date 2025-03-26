@@ -7,7 +7,7 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
+static int accumulatedScroll = 0;  // 新增：全局累计滚动量
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
@@ -16,7 +16,6 @@ int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #endif
 // 新增滚动处理函数
 void ProcessScroll(HWND hwnd, POINT pt) {
-  static int accumulatedScroll = 0;
   static DWORD lastScrollTime = 0;
   
   if (abs(accumulatedScroll) >= 7) {
