@@ -304,7 +304,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 0.7)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
@@ -313,43 +313,25 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // 带插值的平滑计算
-    LONG delta = lastY - client_pt.y;
-    
-    // 新产生的滚动量直接加入余量
-    remainder += delta;
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
         
-        // 处理标准滚动（超过120像素）
-    if (abs(remainder) >= 120) {
-      int direction = (remainder > 0) ? 1 : -1;
-      int scrollAmount = direction * 120; // 标准滚动量
-      SendMessage(hwnd, WM_MOUSEWHEEL,
-                  MAKEWPARAM(0, scrollAmount),
-                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      remainder -= direction * 120;
-  }
-  // 处理缓动滚动
-  else {
-    // 线性缓动计算（固定比例）
-    float easeFactor = 0.3f;  // 降低缓动因子到0.3
-    float step = remainder * easeFactor;
-    
-    // 限制最小步长为0.5像素（保持浮点运算精度）
-    if (abs(step) < 0.5f) {
-        step = (remainder > 0) ? 0.5f : -0.5f;
-    }
-    
-    // 应用动态滚动量调整（保持浮点运算）
-    float scrollAmount = step * custom_wheel_delta;
-    
-    if (abs(scrollAmount) >= 1.0f) {
-        // 将浮点滚动量转换为Windows标准滚动单位（120单位=1行）
-        int windowsScroll = static_cast<int>(scrollAmount * 120.0f);
-        SendMessage(hwnd, WM_MOUSEWHEEL,
-                    MAKEWPARAM(0, windowsScroll),
-                    MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        remainder -= step;  // 使用浮点精度减少余量
-    }
-}
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
+
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
         
         lastY = client_pt.y;
 
