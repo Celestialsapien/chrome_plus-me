@@ -346,7 +346,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               SendMessage(hwnd, WM_MOUSEWHEEL, 
                         MAKEWPARAM(0, accumulatedScroll),
                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              accumulatedScroll -= 120;
+              accumulatedScroll = 0;
               lastScrollTime = 0;
             } else {
               // 定时滚动处理
@@ -357,7 +357,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                           MAKEWPARAM(0, scrollStep),
                           MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
                 accumulatedScroll -= scrollStep;
-                lastScrollTime = currentTime;
+                lastScrollTime = currentTime-1;
               }
             }
           }
