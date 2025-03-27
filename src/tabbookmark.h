@@ -246,8 +246,25 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       break;
     }
 
+    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
+      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+      // 将原生滚轮事件滚动量翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
+      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                 MAKEWPARAM(0, delta), 
+                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      return 1; // 拦截原生滚轮事件
+    }
+    // 新增左键按下检测
+    if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
+      lastY = -1;  // 重置滚动状态
+      remainder = 0;
+      break;       // 左键拖动时跳过自定义滚动
+    }
+
     // 新增边缘滚动检测
-    if (wParam == WM_MOUSEMOVE) {
+    if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
       GetClientRect(hwnd, &rect);
