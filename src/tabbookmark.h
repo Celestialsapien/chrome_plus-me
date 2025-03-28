@@ -272,7 +272,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 16) {
+      if (client_pt.x >= rect.right - 36) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -300,7 +300,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 192) ? 0x101010 : 0x202020;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x313131 : 0x202020;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
