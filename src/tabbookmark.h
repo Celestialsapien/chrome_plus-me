@@ -12,7 +12,7 @@ HHOOK mouse_hook = nullptr;
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.02f     // 降低滚动阈值（原0.5）
+#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -272,7 +272,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 36) {
+      if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
