@@ -251,12 +251,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
       // 惯性滚动参数
       static float inertia_speed = 0;
-      static const float DECELERATION = 0.9f; // 衰减系数
+      static const float DECELERATION = 0.618f; // 衰减系数
       static UINT_PTR inertia_timer = 0;
       
       // 获取原始滚动量并翻倍
       int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      inertia_speed = delta * 0.5; // 初始速度
+      inertia_speed = delta; // 初始速度
 
       // 发送首次滚动
       SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
@@ -265,7 +265,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
       // 设置定时器进行惯性滚动
       if (inertia_timer) KillTimer(nullptr, inertia_timer);
-      inertia_timer = SetTimer(nullptr, 0, 30, [](HWND, UINT, UINT_PTR, DWORD){
+      inertia_timer = SetTimer(nullptr, 0, 25, [](HWND, UINT, UINT_PTR, DWORD){
           inertia_speed *= DECELERATION;
           
           if (fabs(inertia_speed) > 1) {
