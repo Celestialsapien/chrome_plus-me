@@ -249,11 +249,28 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增：处理原生滚轮事件（在非边缘滚动区域时）
     if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 将原生滚轮事件滚动量翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
-      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, delta), 
-                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      static float wheelRemainder = 0;  // 新增滚轮滚动余量
+      
+      // 应用平滑处理
+      float delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 0.3f; // 降低初始速度
+      float smoothedDelta = (delta + wheelRemainder) * SMOOTH_FACTOR;
+      
+      // 分离整数和小数部分
+      int actualScroll = static_cast<int>(smoothedDelta);
+      wheelRemainder = smoothedDelta - actualScroll;
+      
+      // 当余量超过阈值时强制滚动
+      if (abs(wheelRemainder) >= SCROLL_THRESHOLD) {
+        actualScroll += (wheelRemainder > 0) ? 1 : -1;
+        wheelRemainder -= (wheelRemainder > 0) ? 1 : -1;
+      }
+
+      // 发送平滑后的滚动事件
+      if (actualScroll != 0) {
+        SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                   MAKEWPARAM(0, actualScroll * WHEEL_DELTA), 
+                   MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      }
       return 1; // 拦截原生滚轮事件
     }
     // 新增左键按下检测
