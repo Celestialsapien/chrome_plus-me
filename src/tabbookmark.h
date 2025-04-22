@@ -249,28 +249,39 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增：处理原生滚轮事件（在非边缘滚动区域时）
     if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      static float wheelRemainder = 0;  // 新增滚轮滚动余量
+      // 惯性滚动参数
+      static float inertia_speed = 0;
+      static const float DECELERATION = 0.9f; // 衰减系数
+      static UINT_PTR inertia_timer = 0;
       
-      // 应用平滑处理
-      float delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 0.3f; // 降低初始速度
-      float smoothedDelta = (delta + wheelRemainder) * SMOOTH_FACTOR;
-      
-      // 分离整数和小数部分
-      int actualScroll = static_cast<int>(smoothedDelta);
-      wheelRemainder = smoothedDelta - actualScroll;
-      
-      // 当余量超过阈值时强制滚动
-      if (abs(wheelRemainder) >= SCROLL_THRESHOLD) {
-        actualScroll += (wheelRemainder > 0) ? 1 : -1;
-        wheelRemainder -= (wheelRemainder > 0) ? 1 : -1;
-      }
+      // 获取原始滚动量并翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+      inertia_speed = delta * 2; // 初始速度
 
-      // 发送平滑后的滚动事件
-      if (actualScroll != 0) {
-        SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                   MAKEWPARAM(0, actualScroll * WHEEL_DELTA), 
-                   MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      }
+      // 发送首次滚动
+      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
+                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+
+      // 设置定时器进行惯性滚动
+      if (inertia_timer) KillTimer(nullptr, inertia_timer);
+      inertia_timer = SetTimer(nullptr, 0, 30, [](HWND, UINT, UINT_PTR, DWORD){
+          inertia_speed *= DECELERATION;
+          
+          if (fabs(inertia_speed) > 1) {
+              POINT pt;
+              GetCursorPos(&pt);
+              HWND hwnd = WindowFromPoint(pt);
+              
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                         MAKEWPARAM(0, static_cast<int>(inertia_speed)),
+                         MAKELPARAM(pt.x, pt.y));
+          } else {
+              KillTimer(nullptr, inertia_timer);
+              inertia_timer = 0;
+          }
+      });
+
       return 1; // 拦截原生滚轮事件
     }
     // 新增左键按下检测
