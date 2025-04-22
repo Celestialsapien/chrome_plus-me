@@ -251,7 +251,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
       // 惯性滚动参数
       static float inertia_speed = 0;
-      static const float DECELERATION = 0.5f; // 衰减系数
+      static const float DECELERATION = 0.8f; // 衰减系数
       static UINT_PTR inertia_timer = 0;
       
       // 获取原始滚动量并翻倍
