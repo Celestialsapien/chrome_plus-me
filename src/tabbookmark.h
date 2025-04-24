@@ -305,7 +305,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biWidth = 4;
       bmi.bmiHeader.biHeight = rect.bottom;
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
@@ -315,7 +315,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      BitBlt(hdcMem, 0, 0, 4, rect.bottom, hdc, rect.right - 4, 0, SRCCOPY);
 
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
@@ -323,7 +323,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        COLORREF color = RGB(pixels[y * 4 * 4 + 2], pixels[y * 4 * 4 + 1], pixels[y * 4 * 4 + 0]);
         // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
