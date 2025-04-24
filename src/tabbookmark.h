@@ -247,7 +247,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
       // 惯性滚动参数
       static float inertia_speed = 0;
