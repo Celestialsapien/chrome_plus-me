@@ -256,6 +256,22 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         keybd_event(VK_PRIOR,0,0,0);
        }
     }
+    // 新增：增大原生滚动量（简单翻倍，不衰减）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
+      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+      // 提取原始滚动量（WHEEL_DELTA通常为120）
+      int originalDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+      // 直接翻倍滚动量
+      int doubledDelta = originalDelta * 2;
+      // 获取当前鼠标位置对应的窗口
+      POINT pt = pmouse->pt;
+      HWND targetHwnd = WindowFromPoint(pt);
+      // 发送修改后的滚轮消息（保留原按键状态，仅修改滚动量）
+      SendMessage(targetHwnd, WM_MOUSEWHEEL, 
+                 MAKEWPARAM(LOWORD(wParam), doubledDelta),  // 低字保留原按键状态，高字使用翻倍值
+                 MAKELPARAM(pt.x, pt.y));
+      return 1;  // 拦截原始滚轮事件，避免重复处理
+    }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
@@ -277,15 +293,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     if (HandleBookmark(wParam, pmouse)) {
       return 1;
-    }
-    // 新增：无左右键按下时增大滚轮滚动量（不影响原有标签切换逻辑）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
-      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      int originalZDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      const int SCROLL_MULTIPLIER = 2;
-      int newZDelta = originalZDelta * SCROLL_MULTIPLIER;
-      // 保留高位信息（如按钮状态），仅修改低16位的滚轮增量
-      pwheel->mouseData = (pwheel->mouseData & 0xFFFF0000) | (static_cast<DWORD>(newZDelta) & 0xFFFF);
     }
   } while (0);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
