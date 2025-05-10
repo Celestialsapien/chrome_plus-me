@@ -282,10 +282,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
       int originalZDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      // 调整滚动量为原来的2倍（可根据需求修改系数）
       const int SCROLL_MULTIPLIER = 2;
       int newZDelta = originalZDelta * SCROLL_MULTIPLIER;
-      pwheel->mouseData = SET_WHEEL_DELTA_WPARAM(newZDelta);
+      // 保留高位信息（如按钮状态），仅修改低16位的滚轮增量
+      pwheel->mouseData = (pwheel->mouseData & 0xFFFF0000) | (static_cast<DWORD>(newZDelta) & 0xFFFF);
     }
   } while (0);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
