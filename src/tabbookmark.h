@@ -10,34 +10,46 @@ bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
 
-bool IsNeedKeep(HWND hwnd, int32_t* ptr = nullptr) {
+// Compared with `IsOnlyOneTab`, this function additionally implements tick
+// fault tolerance to prevent users from directly closing the window when
+// they click too fast.
+bool IsNeedKeep(NodePtr top_container_view) {
   if (!IsKeepLastTab()) {
     return false;
   }
 
-  bool keep_tab = false;
-
-  NodePtr top_container_view = GetTopContainerView(hwnd);
   auto tab_count = GetTabCount(top_container_view);
-  bool is_only_one_tab = (tab_count > 0 && tab_count <= 1);
+  bool keep_tab = (tab_count == 1);
 
   static auto last_closing_tab_tick = GetTickCount64();
   auto tick = GetTickCount64() - last_closing_tab_tick;
   last_closing_tab_tick = GetTickCount64();
 
-  if (tick > 0 && tick <= 250 && tab_count <= 2) {
-    is_only_one_tab = true;
-  }
-  if (tab_count == 0) {  // 处理全屏等状态
-    is_only_one_tab = false;
-  }
-  keep_tab = is_only_one_tab;
-
-  if (ptr) {
-    *ptr = tick;
+  if (tick > 50 && tick <= 250 && tab_count == 2) {
+    keep_tab = true;
   }
 
   return keep_tab;
+}
+
+// If the top_container_view is not found at the first time, try to close the
+// find-in-page bar and find the top_container_view again.
+NodePtr HandleFindBar(HWND hwnd, POINT pt) {
+  // If the mouse is clicked directly on the find-in-page bar, follow Chrome's
+  // original logic. Otherwise, clicking the button on the find-in-page bar may
+  // directly close the find-in-page bar.
+  if (IsOnDialog(hwnd, pt)) {
+    return nullptr;
+  }
+  NodePtr top_container_view = GetTopContainerView(hwnd);
+  if (!top_container_view) {
+    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
+    top_container_view = GetTopContainerView(hwnd);
+    if (!top_container_view) {
+      return nullptr;
+    }
+  }
+  return top_container_view;
 }
 
 class IniConfig {
@@ -60,7 +72,7 @@ class IniConfig {
 
 IniConfig config;
 
-// 滚轮切换标签页
+// Use the mouse wheel to switch tabs
 bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_MOUSEWHEEL ||
       (!config.is_wheel_tab && !config.is_wheel_tab_when_press_right_button)) {
@@ -73,7 +85,7 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
   int zDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
 
-  // 是否启用鼠标停留在标签栏时滚轮切换标签
+  // If the mouse wheel is used to switch tabs when the mouse is on the tab bar.
   if (config.is_wheel_tab && IsOnTheTabBar(top_container_view, pmouse->pt)) {
     hwnd = GetTopWnd(hwnd);
     if (zDelta > 0) {
@@ -84,7 +96,7 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
     return true;
   }
 
-  // 是否启用在任何位置按住右键时滚轮切换标签
+  // If it is used to switch tabs when the right button is held.
   if (config.is_wheel_tab_when_press_right_button && IsPressed(VK_RBUTTON)) {
     hwnd = GetTopWnd(hwnd);
     if (zDelta > 0) {
@@ -98,102 +110,80 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
-// 双击关闭标签页
+// Double-click to close tab.
 int HandleDoubleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_LBUTTONDBLCLK || !config.is_double_click_close) {
     return 0;
   }
 
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-  NodePtr top_container_view = GetTopContainerView(hwnd);
+  POINT pt = pmouse->pt;
+  HWND hwnd = WindowFromPoint(pt);
+  NodePtr top_container_view = HandleFindBar(hwnd, pt);
   if (!top_container_view) {
-    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
-    top_container_view = GetTopContainerView(hwnd);
-    if (!top_container_view) {
-      return 0;
-    }
+    return 0;
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
+  bool is_on_close_button = IsOnCloseButton(top_container_view, pt);
   bool is_only_one_tab = IsOnlyOneTab(top_container_view);
-
-  if (is_on_one_tab) {
-    if (is_only_one_tab) {
-      ExecuteCommand(IDC_NEW_TAB, hwnd);
-      ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
-    } else {
-      ExecuteCommand(IDC_CLOSE_TAB, hwnd);
-    }
-    return 1;
+  if (!is_on_one_tab || is_on_close_button) {
+    return 0;
   }
-  return 0;
-
-  if (wParam == WM_LBUTTONUP){
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-  NodePtr TopContainerView = GetTopContainerView(hwnd);
-
-  bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
-
-  if (TopContainerView){
-   }
-
-  // 单击地址栏展开下拉菜单
-  if (isOmniboxFocus){
-      keybd_event(VK_PRIOR,0,0,0);
-   }
+  if (is_only_one_tab) {
+    ExecuteCommand(IDC_NEW_TAB, hwnd);
+    ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
+  } else {
+    ExecuteCommand(IDC_CLOSE_TAB, hwnd);
   }
+  return 1;
 }
 
-// 右键关闭标签页
+// Right-click to close tab (Hold Shift to show the original menu).
 int HandleRightClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_RBUTTONUP || IsPressed(VK_SHIFT) ||
       !config.is_right_click_close) {
     return 0;
   }
 
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-  NodePtr top_container_view = GetTopContainerView(hwnd);
+  POINT pt = pmouse->pt;
+  HWND hwnd = WindowFromPoint(pt);
+  NodePtr top_container_view = HandleFindBar(hwnd, pt);
   if (!top_container_view) {
-    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
-    top_container_view = GetTopContainerView(hwnd);
-    if (!top_container_view) {
-      return 0;
-    }
+    return 0;
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
-  bool keep_tab = IsNeedKeep(hwnd);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
+  bool keep_tab = IsNeedKeep(top_container_view);
 
   if (is_on_one_tab) {
     if (keep_tab) {
       ExecuteCommand(IDC_NEW_TAB, hwnd);
       ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
     } else {
-      SendKeys(VK_MBUTTON);
+      // Attempt new SendKey function which includes a `dwExtraInfo`
+      // value (MAGIC_CODE).
+      SendKey(VK_MBUTTON);
     }
     return 1;
   }
   return 0;
 }
 
-// 保留最后标签页 - 中键
+// Preserve the last tab when the middle button is clicked on the tab.
 int HandleMiddleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_MBUTTONUP) {
     return 0;
   }
 
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-  NodePtr top_container_view = GetTopContainerView(hwnd);
+  POINT pt = pmouse->pt;
+  HWND hwnd = WindowFromPoint(pt);
+  NodePtr top_container_view = HandleFindBar(hwnd, pt);
   if (!top_container_view) {
-    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
-    top_container_view = GetTopContainerView(hwnd);
-    if (!top_container_view) {
-      return 0;
-    }
+    return 0;
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
-  bool keep_tab = IsNeedKeep(hwnd);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
+  bool keep_tab = IsNeedKeep(top_container_view);
 
   if (is_on_one_tab && keep_tab) {
     ExecuteCommand(IDC_NEW_TAB, hwnd);
@@ -204,55 +194,30 @@ int HandleMiddleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return 0;
 }
 
-
-
-// 新标签页打开书签
+// Open bookmarks in a new tab.
 bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_LBUTTONUP || IsPressed(VK_CONTROL) || IsPressed(VK_SHIFT) ||
       config.is_bookmark_new_tab == "disabled") {
     return false;
   }
 
-  HWND hwnd = WindowFromPoint(pmouse->pt);
-  NodePtr top_container_view = GetTopContainerView(hwnd);
+  POINT pt = pmouse->pt;
+  HWND hwnd = WindowFromPoint(pt);
+  NodePtr top_container_view = GetTopContainerView(
+      GetFocus());  // Must use `GetFocus()`, otherwise when opening bookmarks
+                    // in a bookmark folder (and similar expanded menus),
+                    // `top_container_view` cannot be obtained, making it
+                    // impossible to correctly determine `is_on_new_tab`. See
+                    // #98.
 
-  bool is_on_bookmark = IsOnBookmark(top_container_view, pmouse->pt);
+  bool is_on_bookmark = IsOnBookmark(hwnd, pt);
   bool is_on_new_tab = IsOnNewTab(top_container_view);
 
-  if (top_container_view && is_on_bookmark && !is_on_new_tab) {
+  if (is_on_bookmark && !is_on_new_tab) {
     if (config.is_bookmark_new_tab == "foreground") {
-      SendKeys(VK_MBUTTON, VK_SHIFT);
+      SendKey(VK_MBUTTON, VK_SHIFT);
     } else if (config.is_bookmark_new_tab == "background") {
-      SendKeys(VK_MBUTTON);
-    }
-    return true;
-  }
-
-  return false;
-}
-
-// 新标签页打开书签文件夹中的书签
-bool HandleBookmarkMenu(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
-  if (wParam != WM_LBUTTONUP || IsPressed(VK_CONTROL) || IsPressed(VK_SHIFT) ||
-      config.is_bookmark_new_tab == "disabled") {
-    return false;
-  }
-
-  HWND hwnd_from_point = WindowFromPoint(pmouse->pt);
-  HWND hwnd_from_keyboard = GetFocus();
-  NodePtr top_container_view = GetTopContainerView(hwnd_from_keyboard);
-  NodePtr menu_bar_pane = GetMenuBarPane(hwnd_from_point);
-
-  bool is_on_menu_bookmark = IsOnMenuBookmark(menu_bar_pane, pmouse->pt);
-  bool is_on_new_tab = IsOnNewTab(top_container_view);
-
-  if (top_container_view && menu_bar_pane && is_on_menu_bookmark &&
-      !is_on_new_tab) {
-    if (config.is_bookmark_new_tab == "foreground") {
-      DebugLog(L"MButton + Shift");
-      SendKeys(VK_MBUTTON, VK_SHIFT);
-    } else if (config.is_bookmark_new_tab == "background") {
-      SendKeys(VK_MBUTTON);
+      SendKey(VK_MBUTTON);
     }
     return true;
   }
@@ -261,49 +226,30 @@ bool HandleBookmarkMenu(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 }
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-  static bool wheel_tab_ing = false;
-  static bool double_click_ing = false;
-
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
-  if (nCode == HC_ACTION) {
+  do {
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      break;
+    }
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
 
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
-      return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
-    }
-
+    // Defining a `dwExtraInfo` value to prevent hook the message sent by
+    // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
-      // DebugLog(L"MAGIC_CODE %x", wParam);
-      goto next;
+      break;
     }
-
-    if (wParam == WM_RBUTTONUP && wheel_tab_ing) {
-      // DebugLog(L"wheel_tab_ing");
-      wheel_tab_ing = false;
-      return 1;
-    }
-
-    // if (wParam == WM_MBUTTONDOWN)
-    //{
-    //     //DebugLog(L"wheel_tab_ing");
-    //     return 1;
-    // }
-    // if (wParam == WM_LBUTTONUP && double_click_ing)
-    //{
-    //     //DebugLog(L"double_click_ing");
-    //     double_click_ing = false;
-    //     return 1;
-    // }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
     }
 
     if (HandleDoubleClick(wParam, pmouse) != 0) {
-      return 1;
+      // Do not return 1. Returning 1 could cause the keep_tab to fail
+      // or trigger double-click operations consecutively when the user
+      // double-clicks on the tab page rapidly and repeatedly.
     }
 
     if (HandleRightClick(wParam, pmouse) != 0) {
@@ -317,18 +263,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (HandleBookmark(wParam, pmouse)) {
       return 1;
     }
-
-    if (HandleBookmarkMenu(wParam, pmouse)) {
-      return 1;
-    }
-  }
-next:
-  // DebugLog(L"CallNextHookEx %X", wParam);
+  } while (0);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
 }
 
 int HandleKeepTab(WPARAM wParam) {
-
   if (!(wParam == 'W' && IsPressed(VK_CONTROL) && !IsPressed(VK_SHIFT)) &&
       !(wParam == VK_F4 && IsPressed(VK_CONTROL))) {
     return 0;
@@ -342,7 +281,7 @@ int HandleKeepTab(WPARAM wParam) {
   }
 
   if (IsFullScreen(hwnd)) {
-    // 必须退出全屏才能找到标签
+    // Have to exit full screen to find the tab.
     ExecuteCommand(IDC_FULLSCREEN, hwnd);
   }
 
@@ -350,7 +289,8 @@ int HandleKeepTab(WPARAM wParam) {
   hwnd = GetAncestor(tmp_hwnd, GA_ROOTOWNER);
   ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, tmp_hwnd);
 
-  if (!IsNeedKeep(hwnd)) {
+  NodePtr top_container_view = GetTopContainerView(hwnd);
+  if (!IsNeedKeep(top_container_view)) {
     return 0;
   }
 
@@ -367,13 +307,13 @@ int HandleOpenUrlNewTab(WPARAM wParam) {
 
   NodePtr top_container_view = GetTopContainerView(GetForegroundWindow());
   if (IsOmniboxFocus(top_container_view) && !IsOnNewTab(top_container_view)) {
-      if (config.is_open_url_new_tab == "foreground") {
-        SendKeys(VK_MENU, VK_RETURN);
-      } else if (config.is_open_url_new_tab == "background") {
-        SendKeys(VK_SHIFT, VK_MENU, VK_RETURN);
-      }
-      return 1;
+    if (config.is_open_url_new_tab == "foreground") {
+      SendKey(VK_MENU, VK_RETURN);
+    } else if (config.is_open_url_new_tab == "background") {
+      SendKey(VK_SHIFT, VK_MENU, VK_RETURN);
     }
+    return 1;
+  }
   return 0;
 }
 
@@ -386,12 +326,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     if (HandleOpenUrlNewTab(wParam) != 0) {
-      return 1;
-    }
-    if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
-      return 1;
-    }
-    if (wParam == VK_NEXT && IsPressed(VK_CONTROL)){
       return 1;
     }
   }
