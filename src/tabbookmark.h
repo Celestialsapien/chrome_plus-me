@@ -286,23 +286,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       return 1;
     }
 
-    bool is_tab_wheel_handled = false;
-    // 先处理标签切换逻辑（保持原有逻辑不变）
-    if (HandleMouseWheel(wParam, lParam, pmouse)) {
-      is_tab_wheel_handled = true;
-      return 1;
-    }
-
-    // 仅当未被标签切换逻辑处理时，才调整滚动量（新增独立逻辑）
-    if (wParam == WM_MOUSEWHEEL && !is_tab_wheel_handled) {
-      if (!IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
-        PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-        int original_zDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-        // 增大滚动量（示例为2倍，可根据需求调整）
-        pwheel->mouseData = (original_zDelta * 2) << 16;  // 重新设置滚轮增量
-      }
-    }
-
     // if (wParam == WM_MBUTTONDOWN)
     //{
     //     //DebugLog(L"wheel_tab_ing");
