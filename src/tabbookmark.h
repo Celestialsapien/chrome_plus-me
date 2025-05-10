@@ -1,4 +1,3 @@
-#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -7,57 +6,38 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
-
-// 增加平滑滚动参数
-#ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
-#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
 
-// Compared with `IsOnlyOneTab`, this function additionally implements tick
-// fault tolerance to prevent users from directly closing the window when
-// they click too fast.
-bool IsNeedKeep(NodePtr top_container_view) {
+bool IsNeedKeep(HWND hwnd, int32_t* ptr = nullptr) {
   if (!IsKeepLastTab()) {
     return false;
   }
 
+  bool keep_tab = false;
+
+  NodePtr top_container_view = GetTopContainerView(hwnd);
   auto tab_count = GetTabCount(top_container_view);
-  bool keep_tab = (tab_count == 1);
+  bool is_only_one_tab = (tab_count > 0 && tab_count <= 1);
 
   static auto last_closing_tab_tick = GetTickCount64();
   auto tick = GetTickCount64() - last_closing_tab_tick;
   last_closing_tab_tick = GetTickCount64();
 
-  if (tick > 50 && tick <= 250 && tab_count == 2) {
-    keep_tab = true;
+  if (tick > 0 && tick <= 250 && tab_count <= 2) {
+    is_only_one_tab = true;
+  }
+  if (tab_count == 0) {  // 处理全屏等状态
+    is_only_one_tab = false;
+  }
+  keep_tab = is_only_one_tab;
+
+  if (ptr) {
+    *ptr = tick;
   }
 
   return keep_tab;
-}
-
-// If the top_container_view is not found at the first time, try to close the
-// find-in-page bar and find the top_container_view again.
-NodePtr HandleFindBar(HWND hwnd, POINT pt) {
-  // If the mouse is clicked directly on the find-in-page bar, follow Chrome's
-  // original logic. Otherwise, clicking the button on the find-in-page bar may
-  // directly close the find-in-page bar.
-  if (IsOnDialog(hwnd, pt)) {
-    return nullptr;
-  }
-  NodePtr top_container_view = GetTopContainerView(hwnd);
-  if (!top_container_view) {
-    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
-    top_container_view = GetTopContainerView(hwnd);
-    if (!top_container_view) {
-      return nullptr;
-    }
-  }
-  return top_container_view;
 }
 
 class IniConfig {
@@ -80,7 +60,7 @@ class IniConfig {
 
 IniConfig config;
 
-// Use the mouse wheel to switch tabs
+// 滚轮切换标签页
 bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_MOUSEWHEEL ||
       (!config.is_wheel_tab && !config.is_wheel_tab_when_press_right_button)) {
@@ -93,7 +73,7 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
   int zDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
 
-  // If the mouse wheel is used to switch tabs when the mouse is on the tab bar.
+  // 是否启用鼠标停留在标签栏时滚轮切换标签
   if (config.is_wheel_tab && IsOnTheTabBar(top_container_view, pmouse->pt)) {
     hwnd = GetTopWnd(hwnd);
     if (zDelta > 0) {
@@ -104,7 +84,7 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
     return true;
   }
 
-  // If it is used to switch tabs when the right button is held.
+  // 是否启用在任何位置按住右键时滚轮切换标签
   if (config.is_wheel_tab_when_press_right_button && IsPressed(VK_RBUTTON)) {
     hwnd = GetTopWnd(hwnd);
     if (zDelta > 0) {
@@ -118,80 +98,102 @@ bool HandleMouseWheel(WPARAM wParam, LPARAM lParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
-// Double-click to close tab.
+// 双击关闭标签页
 int HandleDoubleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_LBUTTONDBLCLK || !config.is_double_click_close) {
     return 0;
   }
 
-  POINT pt = pmouse->pt;
-  HWND hwnd = WindowFromPoint(pt);
-  NodePtr top_container_view = HandleFindBar(hwnd, pt);
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  NodePtr top_container_view = GetTopContainerView(hwnd);
   if (!top_container_view) {
-    return 0;
+    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
+    top_container_view = GetTopContainerView(hwnd);
+    if (!top_container_view) {
+      return 0;
+    }
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
-  bool is_on_close_button = IsOnCloseButton(top_container_view, pt);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
   bool is_only_one_tab = IsOnlyOneTab(top_container_view);
-  if (!is_on_one_tab || is_on_close_button) {
-    return 0;
+
+  if (is_on_one_tab) {
+    if (is_only_one_tab) {
+      ExecuteCommand(IDC_NEW_TAB, hwnd);
+      ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
+    } else {
+      ExecuteCommand(IDC_CLOSE_TAB, hwnd);
+    }
+    return 1;
   }
-  if (is_only_one_tab) {
-    ExecuteCommand(IDC_NEW_TAB, hwnd);
-    ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
-  } else {
-    ExecuteCommand(IDC_CLOSE_TAB, hwnd);
+  return 0;
+
+  if (wParam == WM_LBUTTONUP){
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  NodePtr TopContainerView = GetTopContainerView(hwnd);
+
+  bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
+
+  if (TopContainerView){
+   }
+
+  // 单击地址栏展开下拉菜单
+  if (isOmniboxFocus){
+      keybd_event(VK_PRIOR,0,0,0);
+   }
   }
-  return 1;
 }
 
-// Right-click to close tab (Hold Shift to show the original menu).
+// 右键关闭标签页
 int HandleRightClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_RBUTTONUP || IsPressed(VK_SHIFT) ||
       !config.is_right_click_close) {
     return 0;
   }
 
-  POINT pt = pmouse->pt;
-  HWND hwnd = WindowFromPoint(pt);
-  NodePtr top_container_view = HandleFindBar(hwnd, pt);
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  NodePtr top_container_view = GetTopContainerView(hwnd);
   if (!top_container_view) {
-    return 0;
+    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
+    top_container_view = GetTopContainerView(hwnd);
+    if (!top_container_view) {
+      return 0;
+    }
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
-  bool keep_tab = IsNeedKeep(top_container_view);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
+  bool keep_tab = IsNeedKeep(hwnd);
 
   if (is_on_one_tab) {
     if (keep_tab) {
       ExecuteCommand(IDC_NEW_TAB, hwnd);
       ExecuteCommand(IDC_WINDOW_CLOSE_OTHER_TABS, hwnd);
     } else {
-      // Attempt new SendKey function which includes a `dwExtraInfo`
-      // value (MAGIC_CODE).
-      SendKey(VK_MBUTTON);
+      SendKeys(VK_MBUTTON);
     }
     return 1;
   }
   return 0;
 }
 
-// Preserve the last tab when the middle button is clicked on the tab.
+// 保留最后标签页 - 中键
 int HandleMiddleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_MBUTTONUP) {
     return 0;
   }
 
-  POINT pt = pmouse->pt;
-  HWND hwnd = WindowFromPoint(pt);
-  NodePtr top_container_view = HandleFindBar(hwnd, pt);
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  NodePtr top_container_view = GetTopContainerView(hwnd);
   if (!top_container_view) {
-    return 0;
+    ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, hwnd);
+    top_container_view = GetTopContainerView(hwnd);
+    if (!top_container_view) {
+      return 0;
+    }
   }
 
-  bool is_on_one_tab = IsOnOneTab(top_container_view, pt);
-  bool keep_tab = IsNeedKeep(top_container_view);
+  bool is_on_one_tab = IsOnOneTab(top_container_view, pmouse->pt);
+  bool keep_tab = IsNeedKeep(hwnd);
 
   if (is_on_one_tab && keep_tab) {
     ExecuteCommand(IDC_NEW_TAB, hwnd);
@@ -202,30 +204,55 @@ int HandleMiddleClick(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return 0;
 }
 
-// Open bookmarks in a new tab.
+
+
+// 新标签页打开书签
 bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   if (wParam != WM_LBUTTONUP || IsPressed(VK_CONTROL) || IsPressed(VK_SHIFT) ||
       config.is_bookmark_new_tab == "disabled") {
     return false;
   }
 
-  POINT pt = pmouse->pt;
-  HWND hwnd = WindowFromPoint(pt);
-  NodePtr top_container_view = GetTopContainerView(
-      GetFocus());  // Must use `GetFocus()`, otherwise when opening bookmarks
-                    // in a bookmark folder (and similar expanded menus),
-                    // `top_container_view` cannot be obtained, making it
-                    // impossible to correctly determine `is_on_new_tab`. See
-                    // #98.
+  HWND hwnd = WindowFromPoint(pmouse->pt);
+  NodePtr top_container_view = GetTopContainerView(hwnd);
 
-  bool is_on_bookmark = IsOnBookmark(hwnd, pt);
+  bool is_on_bookmark = IsOnBookmark(top_container_view, pmouse->pt);
   bool is_on_new_tab = IsOnNewTab(top_container_view);
 
-  if (is_on_bookmark && !is_on_new_tab) {
+  if (top_container_view && is_on_bookmark && !is_on_new_tab) {
     if (config.is_bookmark_new_tab == "foreground") {
-      SendKey(VK_MBUTTON, VK_SHIFT);
+      SendKeys(VK_MBUTTON, VK_SHIFT);
     } else if (config.is_bookmark_new_tab == "background") {
-      SendKey(VK_MBUTTON);
+      SendKeys(VK_MBUTTON);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+// 新标签页打开书签文件夹中的书签
+bool HandleBookmarkMenu(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
+  if (wParam != WM_LBUTTONUP || IsPressed(VK_CONTROL) || IsPressed(VK_SHIFT) ||
+      config.is_bookmark_new_tab == "disabled") {
+    return false;
+  }
+
+  HWND hwnd_from_point = WindowFromPoint(pmouse->pt);
+  HWND hwnd_from_keyboard = GetFocus();
+  NodePtr top_container_view = GetTopContainerView(hwnd_from_keyboard);
+  NodePtr menu_bar_pane = GetMenuBarPane(hwnd_from_point);
+
+  bool is_on_menu_bookmark = IsOnMenuBookmark(menu_bar_pane, pmouse->pt);
+  bool is_on_new_tab = IsOnNewTab(top_container_view);
+
+  if (top_container_view && menu_bar_pane && is_on_menu_bookmark &&
+      !is_on_new_tab) {
+    if (config.is_bookmark_new_tab == "foreground") {
+      DebugLog(L"MButton + Shift");
+      SendKeys(VK_MBUTTON, VK_SHIFT);
+    } else if (config.is_bookmark_new_tab == "background") {
+      SendKeys(VK_MBUTTON);
     }
     return true;
   }
@@ -234,193 +261,66 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 }
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+  static bool wheel_tab_ing = false;
+  static bool double_click_ing = false;
+
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
 
-  do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
-    if (wParam == WM_NCMOUSEMOVE) {
-      break;
+  if (nCode == HC_ACTION) {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
+    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+      return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
     }
 
-    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
-      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 惯性滚动参数
-      static float inertia_speed = 0;
-      static const float DECELERATION = 0.61f; // 衰减系数
-      static UINT_PTR inertia_timer = 0;
-      
-      // 获取原始滚动量并翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      inertia_speed = delta; // 初始速度
-
-      // 发送首次滚动
-      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
-                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-
-      // 设置定时器进行惯性滚动
-      if (inertia_timer) KillTimer(nullptr, inertia_timer);
-      inertia_timer = SetTimer(nullptr, 0, 26, [](HWND, UINT, UINT_PTR, DWORD){
-          inertia_speed *= DECELERATION;
-          
-          if (fabs(inertia_speed) > 1) {
-              POINT pt;
-              GetCursorPos(&pt);
-              HWND hwnd = WindowFromPoint(pt);
-              
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                         MAKEWPARAM(0, static_cast<int>(inertia_speed)),
-                         MAKELPARAM(pt.x, pt.y));
-          } else {
-              KillTimer(nullptr, inertia_timer);
-              inertia_timer = 0;
-          }
-      });
-
-      return 1; // 拦截原生滚轮事件
-    }
-    // 新增左键按下检测
-    if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
-      lastY = -1;  // 重置滚动状态
-      remainder = 0;
-      break;       // 左键拖动时跳过自定义滚动
-    }
-
-    // 新增边缘滚动检测
-    if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      RECT rect;
-      GetClientRect(hwnd, &rect);
-      
-      POINT client_pt = pmouse->pt;
-      ScreenToClient(hwnd, &client_pt);
-      
-      if (client_pt.x >= rect.right - 20) {
-        // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
-
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
-          }
-        }
-      prevColor = color;
-      }
-      int scrollbarHeight = 0;
-      if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
-      }
-
-      // 计算动态滚动量
-      float ratio = 0.0f;
-      if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, static_cast<int>(round(ratio * 0.95f))); // 动态调整滚动量系数
-      }
-
-        if (lastY == -1) {
-          lastY = client_pt.y;
-          remainder = 0;  // 重置剩余量
-        }
-        
-        // 带插值的平滑计算
-        LONG delta = lastY - client_pt.y;
-        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-        
-        // 分离整数和小数部分
-        int actualScroll = static_cast<int>(smoothedDelta);
-        remainder = smoothedDelta - actualScroll;
-        
-        // 当余量超过阈值时强制滚动
-        if (abs(remainder) >= SCROLL_THRESHOLD) {
-          actualScroll += (remainder > 0) ? 1 : -1;
-          remainder -= (remainder > 0) ? 1 : -1;
-        }
-
-        if (actualScroll != 0) {
-          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-        }
-        
-        lastY = client_pt.y;
-
-        // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
-      } else {
-        lastY = -1;
-        remainder = 0;  // 离开时重置剩余量
-        break; // 直接退出避免后续处理
-      }
-      break;
-    }
-
-    // Defining a `dwExtraInfo` value to prevent hook the message sent by
-    // Chrome++ itself.
     if (pmouse->dwExtraInfo == MAGIC_CODE) {
-      break;
+      // DebugLog(L"MAGIC_CODE %x", wParam);
+      goto next;
     }
 
-    if (wParam == WM_LBUTTONUP){
-    HWND hwnd = WindowFromPoint(pmouse->pt);
-    NodePtr TopContainerView = GetTopContainerView(hwnd);
-
-    bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
-
-    if (TopContainerView){
-     }
-
-    // 单击地址栏展开下拉菜单
-    if (isOmniboxFocus){
-      keybd_event(VK_PRIOR,0,0,0);
-     }
+    if (wParam == WM_RBUTTONUP && wheel_tab_ing) {
+      // DebugLog(L"wheel_tab_ing");
+      wheel_tab_ing = false;
+      return 1;
     }
+
+    bool is_tab_wheel_handled = false;
+    // 先处理标签切换逻辑（保持原有逻辑不变）
+    if (HandleMouseWheel(wParam, lParam, pmouse)) {
+      is_tab_wheel_handled = true;
+      return 1;
+    }
+
+    // 仅当未被标签切换逻辑处理时，才调整滚动量（新增独立逻辑）
+    if (wParam == WM_MOUSEWHEEL && !is_tab_wheel_handled) {
+      if (!IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
+        PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+        int original_zDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+        // 增大滚动量（示例为2倍，可根据需求调整）
+        pwheel->mouseData = (original_zDelta * 2) << 16;  // 重新设置滚轮增量
+      }
+    }
+
+    // if (wParam == WM_MBUTTONDOWN)
+    //{
+    //     //DebugLog(L"wheel_tab_ing");
+    //     return 1;
+    // }
+    // if (wParam == WM_LBUTTONUP && double_click_ing)
+    //{
+    //     //DebugLog(L"double_click_ing");
+    //     double_click_ing = false;
+    //     return 1;
+    // }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
     }
 
     if (HandleDoubleClick(wParam, pmouse) != 0) {
-      // Do not return 1. Returning 1 could cause the keep_tab to fail
-      // or trigger double-click operations consecutively when the user
-      // double-clicks on the tab page rapidly and repeatedly.
+      return 1;
     }
 
     if (HandleRightClick(wParam, pmouse) != 0) {
@@ -434,11 +334,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (HandleBookmark(wParam, pmouse)) {
       return 1;
     }
-  } while (0);
+
+    if (HandleBookmarkMenu(wParam, pmouse)) {
+      return 1;
+    }
+  }
+next:
+  // DebugLog(L"CallNextHookEx %X", wParam);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
 }
 
 int HandleKeepTab(WPARAM wParam) {
+
   if (!(wParam == 'W' && IsPressed(VK_CONTROL) && !IsPressed(VK_SHIFT)) &&
       !(wParam == VK_F4 && IsPressed(VK_CONTROL))) {
     return 0;
@@ -452,7 +359,7 @@ int HandleKeepTab(WPARAM wParam) {
   }
 
   if (IsFullScreen(hwnd)) {
-    // Have to exit full screen to find the tab.
+    // 必须退出全屏才能找到标签
     ExecuteCommand(IDC_FULLSCREEN, hwnd);
   }
 
@@ -460,8 +367,7 @@ int HandleKeepTab(WPARAM wParam) {
   hwnd = GetAncestor(tmp_hwnd, GA_ROOTOWNER);
   ExecuteCommand(IDC_CLOSE_FIND_OR_STOP, tmp_hwnd);
 
-  NodePtr top_container_view = GetTopContainerView(hwnd);
-  if (!IsNeedKeep(top_container_view)) {
+  if (!IsNeedKeep(hwnd)) {
     return 0;
   }
 
@@ -478,13 +384,13 @@ int HandleOpenUrlNewTab(WPARAM wParam) {
 
   NodePtr top_container_view = GetTopContainerView(GetForegroundWindow());
   if (IsOmniboxFocus(top_container_view) && !IsOnNewTab(top_container_view)) {
-    if (config.is_open_url_new_tab == "foreground") {
-      SendKey(VK_MENU, VK_RETURN);
-    } else if (config.is_open_url_new_tab == "background") {
-      SendKey(VK_SHIFT, VK_MENU, VK_RETURN);
+      if (config.is_open_url_new_tab == "foreground") {
+        SendKeys(VK_MENU, VK_RETURN);
+      } else if (config.is_open_url_new_tab == "background") {
+        SendKeys(VK_SHIFT, VK_MENU, VK_RETURN);
+      }
+      return 1;
     }
-    return 1;
-  }
   return 0;
 }
 
@@ -499,7 +405,6 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (HandleOpenUrlNewTab(wParam) != 0) {
       return 1;
     }
-    
     if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
       return 1;
     }
