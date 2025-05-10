@@ -256,21 +256,26 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         keybd_event(VK_PRIOR,0,0,0);
        }
     }
-    // 新增：增大原生滚动量（简单翻倍，不衰减）
+
+    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
     if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 提取原始滚动量（WHEEL_DELTA通常为120）
-      int originalDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      // 直接翻倍滚动量
-      int doubledDelta = originalDelta * 2;
-      // 获取当前鼠标位置对应的窗口
-      POINT pt = pmouse->pt;
-      HWND targetHwnd = WindowFromPoint(pt);
-      // 发送修改后的滚轮消息（保留原按键状态，仅修改滚动量）
-      SendMessage(targetHwnd, WM_MOUSEWHEEL, 
-                 MAKEWPARAM(LOWORD(wParam), doubledDelta),  // 低字保留原按键状态，高字使用翻倍值
-                 MAKELPARAM(pt.x, pt.y));
-      return 1;  // 拦截原始滚轮事件，避免重复处理
+      // 惯性滚动参数
+      static float inertia_speed = 0;
+      
+      
+      // 获取原始滚动量并翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+      inertia_speed = delta * 2;
+
+      // 发送首次滚动
+      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
+                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+
+      
+
+      return 1; // 拦截原生滚轮事件
     }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
