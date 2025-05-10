@@ -242,6 +242,21 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       break;
     }
 
+    if (wParam == WM_LBUTTONUP){
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      NodePtr TopContainerView = GetTopContainerView(hwnd);
+  
+      bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
+  
+      if (TopContainerView){
+       }
+  
+      // 单击地址栏展开下拉菜单
+      if (isOmniboxFocus){
+        keybd_event(VK_PRIOR,0,0,0);
+       }
+    }
+
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
     }
@@ -262,6 +277,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
     if (HandleBookmark(wParam, pmouse)) {
       return 1;
+    }
+    // 新增：无左右键按下时增大滚轮滚动量（不影响原有标签切换逻辑）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
+      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+      int originalZDelta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+      // 调整滚动量为原来的2倍（可根据需求修改系数）
+      const int SCROLL_MULTIPLIER = 2;
+      int newZDelta = originalZDelta * SCROLL_MULTIPLIER;
+      pwheel->mouseData = SET_WHEEL_DELTA_WPARAM(newZDelta);
     }
   } while (0);
   return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -326,6 +350,12 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     if (HandleOpenUrlNewTab(wParam) != 0) {
+      return 1;
+    }
+    if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
+      return 1;
+    }
+    if (wParam == VK_NEXT && IsPressed(VK_CONTROL)){
       return 1;
     }
   }
