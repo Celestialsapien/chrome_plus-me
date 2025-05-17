@@ -1,3 +1,4 @@
+#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -6,6 +7,11 @@
 HHOOK mouse_hook = nullptr;
 
 #define KEY_PRESSED 0x8000
+
+// 增加平滑滚动参数
+#ifndef CUSTOM_WHEEL_DELTA
+int custom_wheel_delta = 120;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+#endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -231,10 +237,100 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   }
 
   do {
-    if (wParam == WM_MOUSEMOVE || wParam == WM_NCMOUSEMOVE) {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
+    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
+    if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam;
+
+    // 新增左键按下检测
+    if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
+      lastY = -1;  // 重置滚动状态
+      break;       // 左键拖动时跳过自定义滚动
+    }
+
+    // 新增边缘滚动检测
+    if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      RECT rect;
+      GetClientRect(hwnd, &rect);
+      
+      POINT client_pt = pmouse->pt;
+      ScreenToClient(hwnd, &client_pt);
+      
+      if (client_pt.x >= rect.right - 20) {
+        // 新增颜色分析逻辑
+      HDC hdc = GetDC(hwnd);
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
+
+      BYTE* pixels = nullptr;
+      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      HDC hdcMem = CreateCompatibleDC(hdc);
+      SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+
+      // 分析颜色差异
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
+        }
+      prevColor = color;
+      }
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
+      }
+
+      // 计算动态滚动量
+      float ratio = 0.0f;
+      if (scrollbarHeight > 0) {
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, static_cast<int>(round(ratio))); // 动态调整滚动量系数
+      }
+
+        if (lastY == -1) {
+          lastY = client_pt.y;
+        }
+        
+        LONG delta = lastY - client_pt.y;
+
+        if (delta != 0) {
+          int scrollAmount = delta * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
+        
+        lastY = client_pt.y;
+
+      } else {
+        lastY = -1;
+        break; // 直接退出避免后续处理
+      }
+      break;
+    }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
@@ -243,39 +339,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     if (wParam == WM_LBUTTONUP){
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      NodePtr TopContainerView = GetTopContainerView(hwnd);
-  
-      bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
-  
-      if (TopContainerView){
-       }
-  
-      // 单击地址栏展开下拉菜单
-      if (isOmniboxFocus){
-        keybd_event(VK_PRIOR,0,0,0);
-       }
-    }
+    HWND hwnd = WindowFromPoint(pmouse->pt);
+    NodePtr TopContainerView = GetTopContainerView(hwnd);
 
-    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
-      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 惯性滚动参数
-      static float inertia_speed = 0;
-      
-      
-      // 获取原始滚动量并翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      inertia_speed = delta * 2;
+    bool isOmniboxFocus = IsOmniboxFocus(TopContainerView);
 
-      // 发送首次滚动
-      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
-                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+    if (TopContainerView){
+     }
 
-      
-
-      return 1; // 拦截原生滚轮事件
+    // 单击地址栏展开下拉菜单
+    if (isOmniboxFocus){
+      keybd_event(VK_PRIOR,0,0,0);
+     }
     }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
@@ -364,6 +439,7 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (HandleOpenUrlNewTab(wParam) != 0) {
       return 1;
     }
+    
     if (wParam == VK_PRIOR && IsPressed(VK_CONTROL)){
       return 1;
     }
