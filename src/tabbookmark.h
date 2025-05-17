@@ -10,7 +10,7 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 120;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -259,7 +259,53 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        
+        // 新增颜色分析逻辑
+      HDC hdc = GetDC(hwnd);
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
+
+      BYTE* pixels = nullptr;
+      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      HDC hdcMem = CreateCompatibleDC(hdc);
+      SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+
+      // 简化为检测纯黑色（#000000）边界线
+    int upperEdge = -1;
+    int lowerEdge = -1;
+    for (int y = 0; y < rect.bottom; y++) {
+      // 取中间列像素（第4列，8列宽的中间位置）
+      COLORREF color = RGB(pixels[y * 8 * 4 + 4*4 + 2],  // B分量（注意DIB存储顺序为BGR）
+                           pixels[y * 8 * 4 + 4*4 + 1],  // G分量
+                           pixels[y * 8 * 4 + 4*4 + 0]); // R分量
+      
+      // 检测纯黑色（RGB(0,0,0)）
+      if (color == RGB(0, 0, 0)) {
+        if (upperEdge == -1) {
+          upperEdge = y;  // 记录第一个黑色像素为上边界
+        } else {
+          lowerEdge = y;  // 记录第二个黑色像素为下边界（或根据实际布局调整）
+        }
+      }
+    }
+
+    int scrollbarHeight = 0;
+    if (upperEdge != -1 && lowerEdge != -1) {
+      scrollbarHeight = lowerEdge - upperEdge;  // 直接使用黑线间距计算滑块高度
+    }
+
+      // 计算动态滚动量
+      float ratio = 0.0f;
+      if (scrollbarHeight > 0) {
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, static_cast<int>(round(ratio))); // 动态调整滚动量系数
+      }
+
         if (lastY == -1) {
           lastY = client_pt.y;
         }
@@ -302,6 +348,26 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       keybd_event(VK_PRIOR,0,0,0);
      }
     }
+    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
+        PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+        // 惯性滚动参数
+        static float inertia_speed = 0;
+        
+        
+        // 获取原始滚动量并翻倍
+        int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+        inertia_speed = delta * 2;
+  
+        // 发送首次滚动
+        SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                   MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
+                   MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+  
+        
+  
+        return 1; // 拦截原生滚轮事件
+      }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
