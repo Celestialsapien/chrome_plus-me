@@ -10,7 +10,7 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 15;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
@@ -321,7 +321,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 20)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
