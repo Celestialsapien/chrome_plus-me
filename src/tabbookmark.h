@@ -271,6 +271,28 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
+            // 新增：验证窗口是否包含有效滚动条
+  // 1. 检查窗口是否有垂直滚动条样式（WS_VSCROLL）
+  LONG windowStyle = GetWindowLong(hwnd, GWL_STYLE);
+  bool hasVScrollStyle = (windowStyle & WS_VSCROLL) != 0;
+
+  // 2. 尝试获取滚动条信息（验证实际存在滚动条）
+  SCROLLINFO scrollInfo = {0};
+  scrollInfo.cbSize = sizeof(SCROLLINFO);
+  scrollInfo.fMask = SIF_ALL;
+  bool hasValidScroll = GetScrollInfo(hwnd, SB_VERT, &scrollInfo);
+
+  // 新增：调试输出验证结果（通过调试器查看）
+  wchar_t debugMsg[256];
+  swprintf_s(debugMsg, L"[滚动条检查] hwnd=0x%08X | 有滚动条样式=%d | 滚动条有效=%d\n",
+            hwnd, hasVScrollStyle, hasValidScroll);
+  OutputDebugString(debugMsg);
+  // 仅当窗口有滚动条样式且滚动条信息有效时继续处理
+  if (hasVScrollStyle && hasValidScroll) {
+    RECT rect;
+    GetClientRect(hwnd, &rect);
+    POINT client_pt = pmouse->pt;
+    ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
