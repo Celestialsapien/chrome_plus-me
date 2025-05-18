@@ -1,3 +1,4 @@
+#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -300,34 +301,56 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        int scrollbarHeight = 0;  // 提前声明变量，扩大作用域
-        // 改用系统API获取滚动条信息
-        SCROLLINFO si = {0};
-        si.cbSize = sizeof(SCROLLINFO);
-        si.fMask = SIF_ALL;  // 获取完整滚动条信息
-        
-        // 获取垂直滚动条参数
-        if (GetScrollInfo(hwnd, SB_VERT, &si)) {
-          // 计算滚动条滑块高度（基于滚动条区域高度和页面占比）
-          scrollbarHeight = static_cast<int>(
-            (static_cast<float>(rect.bottom - GetSystemMetrics(SM_CYVSCROLL)) *  // 显式转换为float避免警告
-            (static_cast<float>(si.nPage) / (si.nMax - si.nMin + si.nPage)))  // 页面占比
-          );
-          scrollbarHeight = max(20, scrollbarHeight);  // 最小高度限制（避免过小）
-    
-          // 计算动态滚动量系数
-          float ratio = static_cast<float>(rect.bottom) / scrollbarHeight;
-          custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f)));
-    
-          // 合并调试输出（显示滚动条关键参数）
-          wchar_t debugBuf[256];
-          swprintf_s(debugBuf, 
-              L"[ScrollDebug] sbHeight=%d, nPage=%d, nMax=%d, ratio=%.2f\n", 
-              scrollbarHeight, si.nPage, si.nMax, ratio);
-          OutputDebugString(debugBuf);
-        } else {
-          scrollbarHeight = 0;  // 无滚动条时重置
+        // 新增颜色分析逻辑
+      HDC hdc = GetDC(hwnd);
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
+
+      BYTE* pixels = nullptr;
+      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      HDC hdcMem = CreateCompatibleDC(hdc);
+      SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+
+      // 分析颜色差异
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
         }
+      prevColor = color;
+      }
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
+      }
+
+      // 计算动态滚动量
+      float ratio = 0.0f;
+      if (scrollbarHeight > 0) {
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
+      }
 
         if (lastY == -1) {
           lastY = client_pt.y;
@@ -357,6 +380,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
+        // 释放资源
+        DeleteDC(hdcMem);
+        DeleteObject(hBitmap);
+        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
