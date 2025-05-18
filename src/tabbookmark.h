@@ -315,12 +315,25 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
+
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
       int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
+        // 新增：输出第一个像素的分量（仅y=0时执行一次）
+  if (y == 0) {
+    BYTE b = pixels[y * 8 * 4 + 0]; // 假设B分量在0位（BGRA）
+    BYTE g = pixels[y * 8 * 4 + 1]; // G分量在1位
+    BYTE r = pixels[y * 8 * 4 + 2]; // R分量在2位
+    BYTE a = pixels[y * 8 * 4 + 3]; // A分量在3位（若存在）
+    wchar_t debugBuf[256];
+    swprintf_s(debugBuf, 
+        L"[PixelFormatDebug] y=0: B=%d, G=%d, R=%d, A=%d\n", 
+        b, g, r, a);
+    OutputDebugString(debugBuf);
+  }
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
         // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
@@ -338,15 +351,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
       prevColor = color;
       }
-        // 在颜色分析循环中添加：
-if (y == 0) { // 输出第一个像素的分量
-    wchar_t colorBuf[100];
-    swprintf_s(colorBuf, L"[ColorDebug] R=%d, G=%d, B=%d\n",
-        pixels[y * 8 * 4 + 2], // 假设是R分量
-        pixels[y * 8 * 4 + 1], // G分量
-        pixels[y * 8 * 4 + 0]);// B分量
-    OutputDebugString(colorBuf);
-}
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
