@@ -299,46 +299,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-          // 关键修改：输出窗口句柄和客户区坐标
-    wchar_t debugBuf[256];
-    swprintf_s(debugBuf, 
-        L"[ScrollDebug] 当前窗口句柄=0x%p, 客户区宽度=%d, 客户区高度=%d, 鼠标x坐标=%d\n", 
-        hwnd, rect.right, rect.bottom, client_pt.x);
-    OutputDebugString(debugBuf);
       
       if (client_pt.x >= rect.right - 20) {
-        // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
-
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      // 关键修改：检查BitBlt是否成功并输出错误码
-BOOL bltSuccess = BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-if (!bltSuccess) {
-    wchar_t errorBuf[256];
-    swprintf_s(errorBuf, L"[ScrollDebug] BitBlt失败! 错误码: %d\n", GetLastError());
-    OutputDebugString(errorBuf);
-} else {
-    OutputDebugString(L"[ScrollDebug] BitBlt成功，开始分析像素\n");
-}
-
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
+        HDC hdc = GetDC(hwnd);
+        // 调整位图尺寸为完整客户区大小（原8像素宽改为rect.right）
+        BITMAPINFO bmi = {0};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = rect.right;  // 完整客户区宽度
+        bmi.bmiHeader.biHeight = rect.bottom;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+    
+        BYTE* pixels = nullptr;
+        HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+        HDC hdcMem = CreateCompatibleDC(hdc);
+        SelectObject(hdcMem, hBitmap);
+    
+        // 使用PrintWindow获取完整客户区渲染内容
+        BOOL printSuccess = PrintWindow(hwnd, hdcMem, PW_CLIENTONLY);
+        if (!printSuccess) {
+          wchar_t errorBuf[256];
+          swprintf_s(errorBuf, L"[ScrollDebug] PrintWindow失败! 错误码: %d\n", GetLastError());
+          OutputDebugString(errorBuf);
+        } else {
+          OutputDebugString(L"[ScrollDebug] PrintWindow成功，开始分析右边缘8像素\n");
+        }
+    
+        // 分析右边缘8像素的列（x从rect.right-8到rect.right-1）
+        int upperEdge = -1;
+        int lowerEdge = -1;
+        COLORREF prevColor = CLR_INVALID;
+        LONG totalBrightness = 0;
+        for (int y = 0; y < rect.bottom; y++) {
+          // 仅处理右边缘8像素（取中间列x=rect.right-4）
+          int x = rect.right - 4;  // 取中间位置避免边缘误差
+          int pixelIndex = y * rect.right * 4 + x * 4;  // 32位像素格式（BGRA）
+          COLORREF color = RGB(pixels[pixelIndex + 2], pixels[pixelIndex + 1], pixels[pixelIndex]);
+          
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
