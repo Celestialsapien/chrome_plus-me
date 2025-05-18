@@ -299,6 +299,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
+          // 关键修改：输出窗口句柄和客户区坐标
+    wchar_t debugBuf[256];
+    swprintf_s(debugBuf, 
+        L"[ScrollDebug] 当前窗口句柄=0x%p, 客户区宽度=%d, 客户区高度=%d, 鼠标x坐标=%d\n", 
+        hwnd, rect.right, rect.bottom, client_pt.x);
+    OutputDebugString(debugBuf);
       
       if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
@@ -315,8 +321,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-      SaveBitmapToFile(hBitmap, L"debug_scrollbar.bmp"); // 保存到当前目录
+      // 关键修改：检查BitBlt是否成功并输出错误码
+BOOL bltSuccess = BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+if (!bltSuccess) {
+    wchar_t errorBuf[256];
+    swprintf_s(errorBuf, L"[ScrollDebug] BitBlt失败! 错误码: %d\n", GetLastError());
+    OutputDebugString(errorBuf);
+} else {
+    OutputDebugString(L"[ScrollDebug] BitBlt成功，开始分析像素\n");
+}
 
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
