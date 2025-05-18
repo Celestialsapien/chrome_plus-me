@@ -247,13 +247,41 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 将原生滚轮事件滚动量翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
+      // 惯性滚动参数
+      static float inertia_speed = 0;
+      static const float DECELERATION = 0.61f; // 衰减系数
+      static UINT_PTR inertia_timer = 0;
+      
+      // 获取原始滚动量并翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
+      inertia_speed = delta; // 初始速度
+
+      // 发送首次滚动
       SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, delta), 
+                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+
+      // 设置定时器进行惯性滚动
+      if (inertia_timer) KillTimer(nullptr, inertia_timer);
+      inertia_timer = SetTimer(nullptr, 0, 26, [](HWND, UINT, UINT_PTR, DWORD){
+          inertia_speed *= DECELERATION;
+          
+          if (fabs(inertia_speed) > 1) {
+              POINT pt;
+              GetCursorPos(&pt);
+              HWND hwnd = WindowFromPoint(pt);
+              
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                         MAKEWPARAM(0, static_cast<int>(inertia_speed)),
+                         MAKELPARAM(pt.x, pt.y));
+          } else {
+              KillTimer(nullptr, inertia_timer);
+              inertia_timer = 0;
+          }
+      });
+
       return 1; // 拦截原生滚轮事件
     }
     // 新增左键按下检测
@@ -271,28 +299,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
-            // 新增：验证窗口是否包含有效滚动条
-  // 1. 检查窗口是否有垂直滚动条样式（WS_VSCROLL）
-  LONG windowStyle = GetWindowLong(hwnd, GWL_STYLE);
-  bool hasVScrollStyle = (windowStyle & WS_VSCROLL) != 0;
-
-  // 2. 尝试获取滚动条信息（验证实际存在滚动条）
-  SCROLLINFO scrollInfo = {0};
-  scrollInfo.cbSize = sizeof(SCROLLINFO);
-  scrollInfo.fMask = SIF_ALL;
-  bool hasValidScroll = GetScrollInfo(hwnd, SB_VERT, &scrollInfo);
-
-  // 新增：调试输出验证结果（通过调试器查看）
-  wchar_t debugMsg[256];
-  swprintf_s(debugMsg, L"[滚动条检查] hwnd=0x%08X | 有滚动条样式=%d | 滚动条有效=%d\n",
-            hwnd, hasVScrollStyle, hasValidScroll);
-  OutputDebugString(debugMsg);
-  // 仅当窗口有滚动条样式且滚动条信息有效时继续处理
-  if (hasVScrollStyle && hasValidScroll) {
-    RECT rect;
-    GetClientRect(hwnd, &rect);
-    POINT client_pt = pmouse->pt;
-    ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
@@ -322,7 +328,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x202020 : 0x303030;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -343,13 +349,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
       }
-        // 合并调试输出（rect.bottom、scrollbarHeight、ratio）
-      wchar_t debugBuf[256];
-      swprintf_s(debugBuf, L"[ScrollDebug] rect.bottom=%d, scrollbarHeight=%d, ratio=%.2f\n", 
-                 rect.bottom, scrollbarHeight, ratio);
-      OutputDebugString(debugBuf);
+              // 合并调试输出（rect.bottom、scrollbarHeight、ratio）
+              wchar_t debugBuf[256];
+              swprintf_s(debugBuf, L"[ScrollDebug] rect.bottom=%d, scrollbarHeight=%d, ratio=%.2f\n", 
+                         rect.bottom, scrollbarHeight, ratio);
+              OutputDebugString(debugBuf);
 
         if (lastY == -1) {
           lastY = client_pt.y;
