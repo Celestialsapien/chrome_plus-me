@@ -1,4 +1,3 @@
-#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -301,75 +300,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        HDC hdc = GetDC(hwnd);
-        // 调整位图尺寸为完整客户区大小（原8像素宽改为rect.right）
-        BITMAPINFO bmi = {0};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = rect.right;  // 完整客户区宽度
-        bmi.bmiHeader.biHeight = rect.bottom;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
+        // 改用系统API获取滚动条信息
+        SCROLLINFO si = {0};
+        si.cbSize = sizeof(SCROLLINFO);
+        si.fMask = SIF_ALL;  // 获取完整滚动条信息
+        
+        // 获取垂直滚动条参数
+        if (GetScrollInfo(hwnd, SB_VERT, &si)) {
+          // 计算滚动条滑块高度（基于滚动条区域高度和页面占比）
+          int scrollbarHeight = static_cast<int>(
+            (rect.bottom - GetSystemMetrics(SM_CYVSCROLL)) *  // 滚动条可用高度（减去上下箭头）
+            (static_cast<float>(si.nPage) / (si.nMax - si.nMin + si.nPage))  // 页面占比
+          );
+          scrollbarHeight = max(20, scrollbarHeight);  // 最小高度限制（避免过小）
     
-        BYTE* pixels = nullptr;
-        HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-        HDC hdcMem = CreateCompatibleDC(hdc);
-        SelectObject(hdcMem, hBitmap);
+          // 计算动态滚动量系数
+          float ratio = static_cast<float>(rect.bottom) / scrollbarHeight;
+          custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f)));
     
-        // 使用PrintWindow获取完整客户区渲染内容
-        BOOL printSuccess = PrintWindow(hwnd, hdcMem, PW_CLIENTONLY);
-        if (!printSuccess) {
-          wchar_t errorBuf[256];
-          swprintf_s(errorBuf, L"[ScrollDebug] PrintWindow失败! 错误码: %d\n", GetLastError());
-          OutputDebugString(errorBuf);
+          // 合并调试输出（显示滚动条关键参数）
+          wchar_t debugBuf[256];
+          swprintf_s(debugBuf, 
+              L"[ScrollDebug] sbHeight=%d, nPage=%d, nMax=%d, ratio=%.2f\n", 
+              scrollbarHeight, si.nPage, si.nMax, ratio);
+          OutputDebugString(debugBuf);
         } else {
-          OutputDebugString(L"[ScrollDebug] PrintWindow成功，开始分析右边缘8像素\n");
+          scrollbarHeight = 0;  // 无滚动条时重置
         }
-    
-        // 分析右边缘8像素的列（x从rect.right-8到rect.right-1）
-        int upperEdge = -1;
-        int lowerEdge = -1;
-        COLORREF prevColor = CLR_INVALID;
-        LONG totalBrightness = 0;
-        for (int y = 0; y < rect.bottom; y++) {
-          // 仅处理右边缘8像素（取中间列x=rect.right-4）
-          int x = rect.right - 4;  // 取中间位置避免边缘误差
-          int pixelIndex = y * rect.right * 4 + x * 4;  // 32位像素格式（BGRA）
-          COLORREF color = RGB(pixels[pixelIndex + 2], pixels[pixelIndex + 1], pixels[pixelIndex]);
-          
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
-          }
-        }
-      prevColor = color;
-      }
-      int scrollbarHeight = 0;
-      if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
-      }
-
-      // 计算动态滚动量
-      float ratio = 0.0f;
-      if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
-      }
-
-                    // 合并调试输出（追加upperEdge和lowerEdge）
-    wchar_t debugBuf[256];
-    swprintf_s(debugBuf, 
-        L"[ScrollDebug] rect.bottom=%d, upperEdge=%d, lowerEdge=%d, scrollbarHeight=%d, ratio=%.2f\n", 
-        rect.bottom, upperEdge, lowerEdge, scrollbarHeight, ratio);
-    OutputDebugString(debugBuf);
 
         if (lastY == -1) {
           lastY = client_pt.y;
