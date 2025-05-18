@@ -315,6 +315,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      SaveBitmapToFile(hBitmap, L"debug_scrollbar.bmp"); // 保存到当前目录
 
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
@@ -322,18 +324,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;  // 新增亮度累计
       for (int y = 0; y < rect.bottom; y++) {
-        // 新增：输出第一个像素的分量（仅y=0时执行一次）
-  if (y == 0) {
-    BYTE b = pixels[y * 8 * 4 + 0]; // 假设B分量在0位（BGRA）
-    BYTE g = pixels[y * 8 * 4 + 1]; // G分量在1位
-    BYTE r = pixels[y * 8 * 4 + 2]; // R分量在2位
-    BYTE a = pixels[y * 8 * 4 + 3]; // A分量在3位（若存在）
-    wchar_t debugBuf[256];
-    swprintf_s(debugBuf, 
-        L"[PixelFormatDebug] y=0: B=%d, G=%d, R=%d, A=%d\n", 
-        b, g, r, a);
-    OutputDebugString(debugBuf);
-  }
         COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
         // 计算当前像素亮度并累加
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
@@ -362,7 +352,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
       }
-              // 合并调试输出（追加upperEdge和lowerEdge）
+
+                    // 合并调试输出（追加upperEdge和lowerEdge）
     wchar_t debugBuf[256];
     swprintf_s(debugBuf, 
         L"[ScrollDebug] rect.bottom=%d, upperEdge=%d, lowerEdge=%d, scrollbarHeight=%d, ratio=%.2f\n", 
