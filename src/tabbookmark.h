@@ -10,7 +10,9 @@ HHOOK mouse_hook = nullptr;
 
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
-int custom_wheel_delta = 30;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+int custom_wheel_delta = 15;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
+#define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -239,13 +241,25 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
+    static float remainder = 0;  // 新增剩余量用于平滑滚动
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
 
+    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
+      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+      // 将原生滚轮事件滚动量翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
+      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                 MAKEWPARAM(0, delta), 
+                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      return 1; // 拦截原生滚轮事件
+    }
     // 新增左键按下检测
     if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
       lastY = -1;  // 重置滚动状态
+      remainder = 0;
       break;       // 左键拖动时跳过自定义滚动
     }
 
@@ -275,45 +289,62 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       SelectObject(hdcMem, hBitmap);
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
 
-      // 简化为检测纯黑色（#000000）边界线
-    int upperEdge = -1;
-    int lowerEdge = -1;
-    for (int y = 0; y < rect.bottom; y++) {
-      // 取中间列像素（第4列，8列宽的中间位置）
-      COLORREF color = RGB(pixels[y * 8 * 4 + 4*4 + 2],  // B分量（注意DIB存储顺序为BGR）
-                           pixels[y * 8 * 4 + 4*4 + 1],  // G分量
-                           pixels[y * 8 * 4 + 4*4 + 0]); // R分量
-      
-      // 检测纯黑色（RGB(0,0,0)）
-      if (color == RGB(0, 0, 0)) {
-        if (upperEdge == -1) {
-          upperEdge = y;  // 记录第一个黑色像素为上边界
-        } else {
-          lowerEdge = y;  // 记录第二个黑色像素为下边界（或根据实际布局调整）
+      // 分析颜色差异
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
         }
+      prevColor = color;
       }
-    }
-
-    int scrollbarHeight = 0;
-    if (upperEdge != -1 && lowerEdge != -1) {
-      scrollbarHeight = lowerEdge - upperEdge;  // 直接使用黑线间距计算滑块高度
-    }
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
+      }
 
       // 计算动态滚动量
       float ratio = 0.0f;
       if (scrollbarHeight > 0) {
         ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, static_cast<int>(round(ratio))); // 动态调整滚动量系数
+        custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
       }
 
         if (lastY == -1) {
           lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
         }
         
+        // 带插值的平滑计算
         LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
 
-        if (delta != 0) {
-          int scrollAmount = delta * custom_wheel_delta; // 使用动态变量
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
@@ -321,8 +352,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
+        // 释放资源
+        DeleteDC(hdcMem);
+        DeleteObject(hBitmap);
+        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
+        remainder = 0;  // 离开时重置剩余量
         break; // 直接退出避免后续处理
       }
       break;
@@ -348,26 +384,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       keybd_event(VK_PRIOR,0,0,0);
      }
     }
-    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
-        PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-        // 惯性滚动参数
-        static float inertia_speed = 0;
-        
-        
-        // 获取原始滚动量并翻倍
-        int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-        inertia_speed = delta * 2;
-  
-        // 发送首次滚动
-        SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                   MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
-                   MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-  
-        
-  
-        return 1; // 拦截原生滚轮事件
-      }
 
     if (HandleMouseWheel(wParam, lParam, pmouse)) {
       return 1;
