@@ -300,6 +300,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
+        int scrollbarHeight = 0;  // 提前声明变量，扩大作用域
         // 改用系统API获取滚动条信息
         SCROLLINFO si = {0};
         si.cbSize = sizeof(SCROLLINFO);
@@ -308,9 +309,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 获取垂直滚动条参数
         if (GetScrollInfo(hwnd, SB_VERT, &si)) {
           // 计算滚动条滑块高度（基于滚动条区域高度和页面占比）
-          int scrollbarHeight = static_cast<int>(
-            (rect.bottom - GetSystemMetrics(SM_CYVSCROLL)) *  // 滚动条可用高度（减去上下箭头）
-            (static_cast<float>(si.nPage) / (si.nMax - si.nMin + si.nPage))  // 页面占比
+          scrollbarHeight = static_cast<int>(
+            (static_cast<float>(rect.bottom - GetSystemMetrics(SM_CYVSCROLL)) *  // 显式转换为float避免警告
+            (static_cast<float>(si.nPage) / (si.nMax - si.nMin + si.nPage)))  // 页面占比
           );
           scrollbarHeight = max(20, scrollbarHeight);  // 最小高度限制（避免过小）
     
@@ -356,10 +357,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
-        // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
