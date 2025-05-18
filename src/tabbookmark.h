@@ -315,14 +315,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      // 检查位图复制是否成功（新增）
-    BOOL bltSuccess = BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-    if (!bltSuccess) {
-      OutputDebugString(L"[ScrollDebug] 最右8像素颜色复制失败\n");
-    } else {
-      OutputDebugString(L"[ScrollDebug] 最右8像素颜色复制成功\n");
-    }
-
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
       int lowerEdge = -1;  // 新增下沿记录
@@ -346,6 +338,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
       prevColor = color;
       }
+        // 在颜色分析循环中添加：
+if (y == 0) { // 输出第一个像素的分量
+    wchar_t colorBuf[100];
+    swprintf_s(colorBuf, L"[ColorDebug] R=%d, G=%d, B=%d\n",
+        pixels[y * 8 * 4 + 2], // 假设是R分量
+        pixels[y * 8 * 4 + 1], // G分量
+        pixels[y * 8 * 4 + 0]);// B分量
+    OutputDebugString(colorBuf);
+}
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
