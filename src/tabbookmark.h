@@ -315,7 +315,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      // 检查位图复制是否成功（新增）
+    BOOL bltSuccess = BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+    if (!bltSuccess) {
+      OutputDebugString(L"[ScrollDebug] 最右8像素颜色复制失败\n");
+    } else {
+      OutputDebugString(L"[ScrollDebug] 最右8像素颜色复制成功\n");
+    }
 
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
@@ -328,7 +334,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
         if (prevColor != CLR_INVALID) {
           // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x202020 : 0x303030;
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
           if (labs(static_cast<long>(color - prevColor)) > threshold) {
               if (upperEdge == -1) {
                   upperEdge = y;
@@ -351,11 +357,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
       }
-              // 合并调试输出（rect.bottom、scrollbarHeight、ratio）
-              wchar_t debugBuf[256];
-              swprintf_s(debugBuf, L"[ScrollDebug] rect.bottom=%d, scrollbarHeight=%d, ratio=%.2f\n", 
-                         rect.bottom, scrollbarHeight, ratio);
-              OutputDebugString(debugBuf);
+              // 合并调试输出（追加upperEdge和lowerEdge）
+    wchar_t debugBuf[256];
+    swprintf_s(debugBuf, 
+        L"[ScrollDebug] rect.bottom=%d, upperEdge=%d, lowerEdge=%d, scrollbarHeight=%d, ratio=%.2f\n", 
+        rect.bottom, upperEdge, lowerEdge, scrollbarHeight, ratio);
+    OutputDebugString(debugBuf);
 
         if (lastY == -1) {
           lastY = client_pt.y;
