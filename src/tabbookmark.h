@@ -247,41 +247,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     }
 
     // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON) && !IsPressed(VK_RBUTTON)) {
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
       PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 惯性滚动参数
-      static float inertia_speed = 0;
-      static const float DECELERATION = 0.61f; // 衰减系数
-      static UINT_PTR inertia_timer = 0;
-      
-      // 获取原始滚动量并翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData);
-      inertia_speed = delta; // 初始速度
-
-      // 发送首次滚动
+      // 将原生滚轮事件滚动量翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
       SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, static_cast<int>(inertia_speed)), 
+                 MAKEWPARAM(0, delta), 
                  MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-
-      // 设置定时器进行惯性滚动
-      if (inertia_timer) KillTimer(nullptr, inertia_timer);
-      inertia_timer = SetTimer(nullptr, 0, 26, [](HWND, UINT, UINT_PTR, DWORD){
-          inertia_speed *= DECELERATION;
-          
-          if (fabs(inertia_speed) > 1) {
-              POINT pt;
-              GetCursorPos(&pt);
-              HWND hwnd = WindowFromPoint(pt);
-              
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                         MAKEWPARAM(0, static_cast<int>(inertia_speed)),
-                         MAKELPARAM(pt.x, pt.y));
-          } else {
-              KillTimer(nullptr, inertia_timer);
-              inertia_timer = 0;
-          }
-      });
-
       return 1; // 拦截原生滚轮事件
     }
     // 新增左键按下检测
@@ -300,57 +272,41 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 20) {
-        // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
-
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
+      if (client_pt.x >= rect.right - 20) {  // 检测右侧20像素边缘区域
+        HDC hdc = GetDC(hwnd);
+        int upperEdge = -1, lowerEdge = -1;
+        
+        // 只采样中间一列（第4像素）减少计算量
+        const int sampleX = rect.right - 4;
+        COLORREF prevColor = GetPixel(hdc, sampleX, 0);  // 获取顶部像素颜色
+        
+        // 从第10像素开始遍历（跳过标题栏）
+        for (int y = 10; y < rect.bottom - 10; y++) {  // 底部留10像素跳过状态栏
+          COLORREF currentColor = GetPixel(hdc, sampleX, y);
+          
+          // 计算RGB分量差异（更稳定的差异计算）
+          int rDiff = abs(GetRValue(currentColor) - GetRValue(prevColor));
+          int gDiff = abs(GetGValue(currentColor) - GetGValue(prevColor));
+          int bDiff = abs(GetBValue(currentColor) - GetBValue(prevColor));
+          
+          // 明显颜色变化阈值（RGB分量总差异>150）
+          if (rDiff + gDiff + bDiff > 50) {
+            if (upperEdge == -1) {
+              upperEdge = y;  // 首次检测到变化为上沿
+            } else {
+              lowerEdge = y;  // 第二次检测到变化为下沿
+              break;          // 找到两个边缘后停止遍历
+            }
           }
+          prevColor = currentColor;
         }
-      prevColor = color;
-      }
-      int scrollbarHeight = 0;
-      if (upperEdge != -1 && lowerEdge != -1) {
-          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
-      }
-
-      // 计算动态滚动量
-      float ratio = 0.0f;
-      if (scrollbarHeight > 0) {
-        ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, static_cast<int>(round(ratio * 1.2f))); // 动态调整滚动量系数
-      }
+    
+        // 计算滑块高度（至少保留10像素有效高度）
+        int scrollbarHeight = (lowerEdge > upperEdge + 10) ? (lowerEdge - upperEdge) : rect.bottom / 5;
+    
+        // 动态调整滚动量系数
+        float ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, min((int)(ratio * 1.2)));
 
         if (lastY == -1) {
           lastY = client_pt.y;
@@ -381,9 +337,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         lastY = client_pt.y;
 
         // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
+        ReleaseDC(hwnd, hdc);  // 仅需释放DC，无需处理复杂位图
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
