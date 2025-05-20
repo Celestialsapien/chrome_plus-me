@@ -277,39 +277,38 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 只采样中间一列（第4像素）减少计算量
         const int sampleX = rect.right - 4;
-        // 定义悬浮时滑块的新颜色（需根据你的CSS注入颜色修改）
-    const COLORREF HOVER_SLIDER_COLOR = RGB(255, 0, 0);  // 示例红色，需替换为实际颜色
-    const int COLOR_TOLERANCE = 30;  // 颜色容差（处理抗锯齿等情况）
+        / 1. 调整基底颜色采样位置到滚动条底部（避开顶部滑块区域）
+    const int baseY = rect.bottom - 20;  // 从底部向上20像素作为安全基底区域
+    COLORREF baseColor = GetPixel(hdc, sampleX, baseY);
+    int baseGray = (GetRValue(baseColor) * 299 + GetGValue(baseColor) * 587 + GetBValue(baseColor) * 114) / 1000;  // 灰度计算
     
-    int newColorCount = 0;  // 统计新颜色像素数
+    // 2. 遍历整个有效区域（从顶部10像素到底部30像素，避开可能的底部干扰）
+    int sliderGrayCount = 0;
+    const int GRAY_DIFF_THRESHOLD = 30;  // 灰度差异阈值
     
-    // 遍历有效区域（跳过标题栏和状态栏）
-    for (int y = 10; y < rect.bottom - 10; y++) {
+    for (int y = 10; y < rect.bottom - 30; y++) {  // 底部多留10像素避开状态栏
       COLORREF currentColor = GetPixel(hdc, sampleX, y);
+      int currentGray = (GetRValue(currentColor) * 299 + GetGValue(currentColor) * 587 + GetBValue(currentColor) * 114) / 1000;
       
-      // 计算与目标颜色的差异（允许容差）
-      int rDiff = abs(GetRValue(currentColor) - GetRValue(HOVER_SLIDER_COLOR));
-      int gDiff = abs(GetGValue(currentColor) - GetGValue(HOVER_SLIDER_COLOR));
-      int bDiff = abs(GetBValue(currentColor) - GetBValue(HOVER_SLIDER_COLOR));
-      
-      if (rDiff + gDiff + bDiff <= COLOR_TOLERANCE) {
-        newColorCount++;  // 符合新颜色条件时计数
+      if (abs(currentGray - baseGray) > GRAY_DIFF_THRESHOLD) {
+        sliderGrayCount++;  // 统计与基底灰度差异大的像素（滑块区域）
       }
     }
 
-    // 计算滑块高度（至少保留10像素有效高度）
-    int scrollbarHeight = max(newColorCount, 10);
+    // 3. 计算滑块高度（至少保留10像素）
+    int scrollbarHeight = max(sliderGrayCount, 10);
     
         // 动态调整滚动量系数
         float ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 1.2));
 
         
-// 调试输出（新增关键参数）
+// 调试输出（新增底部基底参数）
 wchar_t debugInfo[256];
-swprintf_s(debugInfo, L"[HoverScrollDebug] rect.bottom:%d | newColorCount:%d | scrollbarHeight:%d | ratio:%.2f\n",
-          rect.bottom, newColorCount, scrollbarHeight, ratio);
+swprintf_s(debugInfo, L"[GrayScrollDebug] baseY:%d | baseGray:%d | sliderGrayCount:%d | scrollbarHeight:%d\n",
+          baseY, baseGray, sliderGrayCount, scrollbarHeight);
 OutputDebugString(debugInfo);
+
 
         if (lastY == -1) {
           lastY = client_pt.y;
