@@ -277,7 +277,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         // 只采样中间一列（第4像素）减少计算量
         const int sampleX = rect.right - 4;
-        / 1. 调整基底颜色采样位置到滚动条底部（避开顶部滑块区域）
+        // 1. 调整基底颜色采样位置到滚动条底部（避开顶部滑块区域）
     const int baseY = rect.bottom - 20;  // 从底部向上20像素作为安全基底区域
     COLORREF baseColor = GetPixel(hdc, sampleX, baseY);
     int baseGray = (GetRValue(baseColor) * 299 + GetGValue(baseColor) * 587 + GetBValue(baseColor) * 114) / 1000;  // 灰度计算
