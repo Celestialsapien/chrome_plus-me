@@ -274,45 +274,41 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       if (client_pt.x >= rect.right - 20) {  // 检测右侧20像素边缘区域
         HDC hdc = GetDC(hwnd);
-        int upperEdge = -1, lowerEdge = -1;
         
         // 只采样中间一列（第4像素）减少计算量
         const int sampleX = rect.right - 4;
-        COLORREF prevColor = GetPixel(hdc, sampleX, 0);  // 获取顶部像素颜色
-        
-        // 从第10像素开始遍历（跳过标题栏）
-        for (int y = 10; y < rect.bottom - 10; y++) {  // 底部留10像素跳过状态栏
-          COLORREF currentColor = GetPixel(hdc, sampleX, y);
-          
-          // 计算RGB分量差异（更稳定的差异计算）
-          int rDiff = abs(GetRValue(currentColor) - GetRValue(prevColor));
-          int gDiff = abs(GetGValue(currentColor) - GetGValue(prevColor));
-          int bDiff = abs(GetBValue(currentColor) - GetBValue(prevColor));
-          
-          // 明显颜色变化阈值（RGB分量总差异>150）
-          if (rDiff + gDiff + bDiff > 50) {
-            if (upperEdge == -1) {
-              upperEdge = y;  // 首次检测到变化为上沿
-            } else {
-              lowerEdge = y;  // 第二次检测到变化为下沿
-              break;          // 找到两个边缘后停止遍历
-            }
-          }
-          prevColor = currentColor;
-        }
+        // 定义悬浮时滑块的新颜色（需根据你的CSS注入颜色修改）
+    const COLORREF HOVER_SLIDER_COLOR = RGB(255, 0, 0);  // 示例红色，需替换为实际颜色
+    const int COLOR_TOLERANCE = 30;  // 颜色容差（处理抗锯齿等情况）
     
-        // 计算滑块高度（至少保留10像素有效高度）
-        int scrollbarHeight = (lowerEdge > upperEdge + 10) ? (lowerEdge - upperEdge) : rect.bottom / 5;
+    int newColorCount = 0;  // 统计新颜色像素数
+    
+    // 遍历有效区域（跳过标题栏和状态栏）
+    for (int y = 10; y < rect.bottom - 10; y++) {
+      COLORREF currentColor = GetPixel(hdc, sampleX, y);
+      
+      // 计算与目标颜色的差异（允许容差）
+      int rDiff = abs(GetRValue(currentColor) - GetRValue(HOVER_SLIDER_COLOR));
+      int gDiff = abs(GetGValue(currentColor) - GetGValue(HOVER_SLIDER_COLOR));
+      int bDiff = abs(GetBValue(currentColor) - GetBValue(HOVER_SLIDER_COLOR));
+      
+      if (rDiff + gDiff + bDiff <= COLOR_TOLERANCE) {
+        newColorCount++;  // 符合新颜色条件时计数
+      }
+    }
+
+    // 计算滑块高度（至少保留10像素有效高度）
+    int scrollbarHeight = max(newColorCount, 10);
     
         // 动态调整滚动量系数
         float ratio = (float)rect.bottom / scrollbarHeight;
         custom_wheel_delta = max(1, (int)(ratio * 1.2));
 
         
-// 新增调试输出：关键参数
+// 调试输出（新增关键参数）
 wchar_t debugInfo[256];
-swprintf_s(debugInfo, L"[ColorScrollDebug] rect.bottom:%d | upperEdge:%d | lowerEdge:%d | scrollbarHeight:%d | ratio:%.2f\n",
-          rect.bottom, upperEdge, lowerEdge, scrollbarHeight, (float)rect.bottom / scrollbarHeight);
+swprintf_s(debugInfo, L"[HoverScrollDebug] rect.bottom:%d | newColorCount:%d | scrollbarHeight:%d | ratio:%.2f\n",
+          rect.bottom, newColorCount, scrollbarHeight, ratio);
 OutputDebugString(debugInfo);
 
         if (lastY == -1) {
