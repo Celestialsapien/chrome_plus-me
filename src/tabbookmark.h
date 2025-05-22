@@ -1,4 +1,3 @@
-#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -275,7 +274,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       if (client_pt.x >= rect.right - 20) {
        // 新增：提取标签页标题中的ratio值
-
+       // 新增：提取标签页标题中的ratio值（默认1.0f）
+      float current_ratio = 1.0f;  // 默认值
       HWND topHwnd = GetTopWnd(GetFocus());  // 获取顶层窗口句柄（需确认GetTopWnd是否可用）
       if (topHwnd) {
         wchar_t title[256] = {0};
@@ -294,8 +294,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           }
         }
       }
+      ratio = current_ratio;  // 最终使用解析值或默认值
     
-
       // 计算动态滚动量
       
       if (ratio > 0) {
