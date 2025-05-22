@@ -313,6 +313,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
+      if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) { // 新增窗口有效性检查
+        lastY = -1;
+        remainder = 0;
+        break;
+      }
       RECT rect;
       GetClientRect(hwnd, &rect);
       
@@ -334,7 +339,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      PrintWindow(hwnd, hdcMem, PW_CLIENTONLY); // 仅获取客户区内容
+      // 关键修正：从内存DC（hdcMem）中提取右侧8像素区域
+      BitBlt(
+        hdcMem,                // 目标DC（当前8像素宽的位图）
+        0, 0,                  // 目标区域起点（0,0）
+        8, rect.bottom,        // 复制宽度8像素，高度同窗口
+        hdcMem,                // 源DC（已包含完整客户区内容的内存DC）
+        rect.right - 8, 0,     // 源区域起点（窗口右侧-8像素）
+        SRCCOPY                // 复制模式
+    );
       // 修正：传递窗口DC和hBitmap到保存函数（关键修正）
       SaveBitmapToFile(hdc, hBitmap, L"edge_sample.bmp");
 
