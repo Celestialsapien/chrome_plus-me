@@ -1,11 +1,11 @@
 #pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "dwmapi.lib")  // 新增：链接DWM库
+#pragma comment(lib, "UIAutomationClient.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
-#define _WIN32_WINNT _WIN32_WINNT_WINBLUE
 #include "iaccessible.h"
-#include <dwmapi.h>  // 新增：包含DWM头文件
+#include <UIAutomationClient.h>
+
 
 HHOOK mouse_hook = nullptr;
 
@@ -276,78 +276,112 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-      // 改用DwmCaptureSnapshot获取截图
-      SIZE captureSize = {8, rect.bottom};  // 目标区域大小：8像素宽，窗口高度
-      BYTE* pixels = nullptr;
-
-      // 创建DIB用于存储截图（高度为负避免上下翻转）
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = captureSize.cx;
-      bmi.bmiHeader.biHeight = -captureSize.cy;  // 正向扫描线
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
-
-      HBITMAP hBitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      if (hBitmap) {
-        // 直接通过DWM获取窗口右侧8像素的截图
-        HRESULT hr = DwmCaptureSnapshot(hwnd, hBitmap, captureSize, 0);
+        IUIAutomation* pAutomation = nullptr;
+        IUIAutomationElement* pElement = nullptr;
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         if (SUCCEEDED(hr)) {
-          // 分析颜色差异（与原逻辑一致）
-          int upperEdge = -1;
-          int lowerEdge = -1;
-          COLORREF prevColor = CLR_INVALID;
-          LONG totalBrightness = 0;
-          for (int y = 0; y < rect.bottom; y++) {
-            COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-            totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-            if (prevColor != CLR_INVALID) {
-              long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-              if (labs(static_cast<long>(color - prevColor)) > threshold) {
-                if (upperEdge == -1) upperEdge = y;
-                else { lowerEdge = y; break; }
+          hr = CoCreateInstance(
+            __uuidof(CUIAutomation),
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            __uuidof(IUIAutomation),
+            (void**)&pAutomation
+          );
+        }
+    
+        // 获取窗口对应的自动化元素
+        if (SUCCEEDED(hr)) {
+          hr = pAutomation->ElementFromHandle(hwnd, &pElement);
+        }
+    
+        // 查找垂直滚动条（根据自动化属性筛选）
+        IUIAutomationElement* pScrollBar = nullptr;
+        if (SUCCEEDED(hr)) {
+          IUIAutomationCondition* pCondition = nullptr;
+          VARIANT varProp;
+          varProp.vt = VT_I4;
+          varProp.lVal = UIA_ScrollBarControlTypeId; // 滚动条控件类型
+          hr = pAutomation->CreatePropertyCondition(
+            UIA_ControlTypePropertyId,
+            varProp,
+            &pCondition
+          );
+          if (SUCCEEDED(hr)) {
+            IUIAutomationElementArray* pScrollBars = nullptr;
+            hr = pElement->FindAll(TreeScope_Descendants, pCondition, &pScrollBars);
+            if (SUCCEEDED(hr) && pScrollBars != nullptr) {
+              int count = 0;
+              pScrollBars->get_Length(&count);
+              if (count > 0) {
+                pScrollBars->GetElement(0, &pScrollBar); // 取第一个滚动条
               }
             }
-            prevColor = color;
+            SafeRelease(pCondition);
           }
-
-          // 计算动态滚动量（与原逻辑一致）
-          int scrollbarHeight = (upperEdge != -1 && lowerEdge != -1) ? lowerEdge - upperEdge : 0;
-          float ratio = (scrollbarHeight > 0) ? (float)rect.bottom / scrollbarHeight : 0.0f;
-          custom_wheel_delta = max(1, (int)(ratio * 1.2));
-
-          // 平滑滚动计算（与原逻辑一致）
-          if (lastY == -1) {
-            lastY = client_pt.y;
-            remainder = 0;
-          }
-          LONG delta = lastY - client_pt.y;
-          float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
-          int actualScroll = static_cast<int>(smoothedDelta);
-          remainder = smoothedDelta - actualScroll;
-          if (abs(remainder) >= SCROLL_THRESHOLD) {
-            actualScroll += (remainder > 0) ? 1 : -1;
-            remainder -= (remainder > 0) ? 1 : -1;
-          }
-          if (actualScroll != 0) {
-            int scrollAmount = actualScroll * custom_wheel_delta;
-            SendMessage(hwnd, WM_MOUSEWHEEL, 
-                        MAKEWPARAM(0, scrollAmount),
-                        MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-          }
-          lastY = client_pt.y;
         }
+    
+        // 获取滚动条边界
+        RECT scrollBarRect = {0};
+        if (pScrollBar != nullptr) {
+          VARIANT varRect;
+          hr = pScrollBar->GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId, &varRect);
+          if (SUCCEEDED(hr) && varRect.vt == VT_RECT) {
+            scrollBarRect = varRect.rectVal;
+          }
+        }
+    
+        // 计算滚动条高度（替代原颜色分析）
+        int scrollbarHeight = scrollBarRect.bottom - scrollBarRect.top;
+        if (scrollbarHeight > 0) {
+          float ratio = (float)rect.bottom / scrollbarHeight;
+          custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
+        }
+    
         // 释放资源
+        SafeRelease(pScrollBar);
+        SafeRelease(pElement);
+        SafeRelease(pAutomation);
+        CoUninitialize();
+
+        if (lastY == -1) {
+          lastY = client_pt.y;
+          remainder = 0;  // 重置剩余量
+        }
+        
+        // 带插值的平滑计算
+        LONG delta = lastY - client_pt.y;
+        float smoothedDelta = (delta + remainder) * SMOOTH_FACTOR;
+        
+        // 分离整数和小数部分
+        int actualScroll = static_cast<int>(smoothedDelta);
+        remainder = smoothedDelta - actualScroll;
+        
+        // 当余量超过阈值时强制滚动
+        if (abs(remainder) >= SCROLL_THRESHOLD) {
+          actualScroll += (remainder > 0) ? 1 : -1;
+          remainder -= (remainder > 0) ? 1 : -1;
+        }
+
+        if (actualScroll != 0) {
+          int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+        }
+        
+        lastY = client_pt.y;
+
+        // 释放资源
+        DeleteDC(hdcMem);
         DeleteObject(hBitmap);
+        ReleaseDC(hwnd, hdc);
+      } else {
+        lastY = -1;
+        remainder = 0;  // 离开时重置剩余量
+        break; // 直接退出避免后续处理
       }
-    } else {
-      lastY = -1;
-      remainder = 0;
       break;
     }
-    break;
-  }
 
     // Defining a `dwExtraInfo` value to prevent hook the message sent by
     // Chrome++ itself.
