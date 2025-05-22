@@ -351,9 +351,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
-      // 先用PrintWindow获取完整客户区渲染结果
-    PrintWindow(hwnd, hdcMem, PW_CLIENTONLY); 
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      // 发送WM_PRINT消息，通知窗口将客户区内容绘制到hdcMem
+    SendMessage(hwnd, WM_PRINT, (WPARAM)hdcMem, 
+    PRF_CLIENT | PRF_ERASEBKGND);  // PRF_CLIENT：仅绘制客户区；PRF_ERASEBKGND：擦除背景
       // 调用全局函数导出位图
       SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
 
