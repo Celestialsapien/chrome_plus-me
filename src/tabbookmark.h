@@ -321,6 +321,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20 && dxgiInited) {
+        int upperEdge = -1;  // 新增上沿记录
+        int lowerEdge = -1;  // 新增下沿记录
         // 使用DirectX获取硬件加速窗口像素
         IDXGIResource* desktopResource = nullptr;
         DXGI_OUTDUPL_FRAME_INFO frameInfo;
@@ -349,9 +351,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 copyDesc.BindFlags = 0;
                 ID3D11Texture2D* copyTexture = nullptr;
                 dxgiRes.device->CreateTexture2D(&copyDesc, nullptr, &copyTexture);
-
-                int upperEdge = -1;  // 新增上沿记录
-                int lowerEdge = -1;  // 新增下沿记录
                 
                 if (copyTexture) {
                   // 修正：获取设备上下文（需传递输出参数）
