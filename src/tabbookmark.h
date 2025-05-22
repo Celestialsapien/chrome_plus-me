@@ -3,6 +3,7 @@
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
+#define _WIN32_WINNT _WIN32_WINNT_WINBLUE
 #include "iaccessible.h"
 #include <dwmapi.h>  // 新增：包含DWM头文件
 
