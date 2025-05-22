@@ -267,52 +267,44 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
-      GetClientRect(hwnd, &rect);
+      if (!GetClientRect(hwnd, &rect) || rect.bottom <= 0) break; // 确保窗口有效
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-      // 新增颜色分析逻辑（修改部分）
-    HDC hdc = GetWindowDC(hwnd); // 使用GetWindowDC获取包含非客户区的DC
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
+        // 简化版：使用 WM_PRINTCLIENT 触发窗口自绘
+        HDC hdcMem = CreateCompatibleDC(nullptr);
+        HBITMAP hBitmap = CreateCompatibleBitmap(GetDC(hwnd), 8, rect.bottom);
+        SelectObject(hdcMem, hBitmap);
 
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      // 使用PrintWindow替代BitBlt，强制渲染窗口内容到内存DC
-    PrintWindow(hwnd, hdcMem, PW_CLIENTONLY); // PW_CLIENTONLY仅渲染客户区
+        // 触发窗口将客户区内容绘制到内存DC
+        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)hdcMem, PRF_CLIENTONLY);
 
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
-          }
+        // 读取像素数据（直接从内存DC获取）
+        BITMAP bmp;
+        GetObject(hBitmap, sizeof(bmp), &bmp);
+        BYTE* pixels = (BYTE*)bmp.bmBits;
+
+        // 简化颜色分析（固定阈值，先验证是否能获取有效颜色）
+        int upperEdge = -1, lowerEdge = -1;
+        for (int y = 0; y < rect.bottom; y++) {
+            // 直接取中间列像素（第4列，避免边缘误差）
+            COLORREF color = RGB(
+                pixels[y * bmp.bmWidthBytes + 4*4 + 2],  // BGR格式转RGB
+                pixels[y * bmp.bmWidthBytes + 4*4 + 1],
+                pixels[y * bmp.bmWidthBytes + 4*4 + 0]
+            );
+            
+            // 简单阈值：颜色变化超过0x30（约48）认为是滚动条边缘
+            if (upperEdge == -1) {
+                upperEdge = y;
+            } else if (abs(color - prevColor) > 0x300000) { // 仅比较红色通道（滚动条常为纯色）
+                lowerEdge = y;
+                break;
+            }
+            prevColor = color;
         }
-      prevColor = color;
-      }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
@@ -356,7 +348,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 释放资源
         DeleteDC(hdcMem);
         DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
