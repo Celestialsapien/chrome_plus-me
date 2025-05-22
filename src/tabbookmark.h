@@ -232,48 +232,7 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-
-LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-  if (nCode != HC_ACTION) {
-    return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
-  }
-
-  do {
-    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
-    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
-    static float remainder = 0;  // 新增剩余量用于平滑滚动
-    if (wParam == WM_NCMOUSEMOVE) {
-      break;
-    }
-
-    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
-    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
-      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
-      // 将原生滚轮事件滚动量翻倍
-      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
-      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
-                 MAKEWPARAM(0, delta), 
-                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-      return 1; // 拦截原生滚轮事件
-    }
-    // 新增左键按下检测
-    if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
-      lastY = -1;  // 重置滚动状态
-      remainder = 0;
-      break;       // 左键拖动时跳过自定义滚动
-    }
-
-    // 新增边缘滚动检测
-    if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
-      HWND hwnd = WindowFromPoint(pmouse->pt);
-      RECT rect;
-      GetClientRect(hwnd, &rect);
-      
-      POINT client_pt = pmouse->pt;
-      ScreenToClient(hwnd, &client_pt);
-      
-      if (client_pt.x >= rect.right - 20) {
-        // 新增：保存位图到文件的函数
+// 新增：保存位图到文件的函数（移动到全局作用域）
 bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
   HDC hdc = GetDC(nullptr);
   BITMAP bmp;
@@ -322,6 +281,47 @@ bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
   ReleaseDC(nullptr, hdc);
   return true;
 }
+
+LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+  if (nCode != HC_ACTION) {
+    return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
+  }
+
+  do {
+    PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
+    static LONG lastY = -1;  // 将静态变量声明移到外层作用域
+    static float remainder = 0;  // 新增剩余量用于平滑滚动
+    if (wParam == WM_NCMOUSEMOVE) {
+      break;
+    }
+
+    // 新增：处理原生滚轮事件（在非边缘滚动区域时）
+    if (wParam == WM_MOUSEWHEEL && !IsPressed(VK_LBUTTON)) {
+      PMOUSEHOOKSTRUCTEX pwheel = (PMOUSEHOOKSTRUCTEX)lParam;
+      // 将原生滚轮事件滚动量翻倍
+      int delta = GET_WHEEL_DELTA_WPARAM(pwheel->mouseData) * 2;
+      SendMessage(WindowFromPoint(pmouse->pt), WM_MOUSEWHEEL, 
+                 MAKEWPARAM(0, delta), 
+                 MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+      return 1; // 拦截原生滚轮事件
+    }
+    // 新增左键按下检测
+    if (wParam == WM_MOUSEMOVE && IsPressed(VK_LBUTTON)) {
+      lastY = -1;  // 重置滚动状态
+      remainder = 0;
+      break;       // 左键拖动时跳过自定义滚动
+    }
+
+    // 新增边缘滚动检测
+    if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
+      HWND hwnd = WindowFromPoint(pmouse->pt);
+      RECT rect;
+      GetClientRect(hwnd, &rect);
+      
+      POINT client_pt = pmouse->pt;
+      ScreenToClient(hwnd, &client_pt);
+      
+      if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
@@ -337,7 +337,7 @@ bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-      // 新增：导出取样位图（测试路径，可根据需要修改）
+      // 调用全局函数导出位图
       SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
 
       // 分析颜色差异
