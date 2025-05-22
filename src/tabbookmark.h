@@ -276,68 +276,62 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-// 新增颜色分析逻辑（改用DwmCaptureSnapshot）
-SIZE captureSize = {8, rect.bottom};  // 目标区域大小：8像素宽，窗口高度
-HBITMAP hBitmap = nullptr;
-BYTE* pixels = nullptr;
+      // 新增颜色分析逻辑（改用DwmCaptureSnapshot）
+      SIZE captureSize = {8, rect.bottom};  // 目标区域大小：8像素宽，窗口高度
+      HBITMAP hBitmap = nullptr;
+      BYTE* pixels = nullptr;
 
-// 创建DIB用于存储截图
-BITMAPINFO bmi = {0};
-bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-bmi.bmiHeader.biWidth = captureSize.cx;
-bmi.bmiHeader.biHeight = -captureSize.cy;  // 正向扫描线（避免上下翻转）
-bmi.bmiHeader.biPlanes = 1;
-bmi.bmiHeader.biBitCount = 32;
-bmi.bmiHeader.biCompression = BI_RGB;
+      // 创建DIB用于存储截图
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = captureSize.cx;
+      bmi.bmiHeader.biHeight = -captureSize.cy;  // 正向扫描线（避免上下翻转）
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
 
-// 创建DIB并调用DwmCaptureSnapshot
-hBitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-if (hBitmap) {
-  HRESULT hr = DwmCaptureSnapshot(hwnd, hBitmap, captureSize, 0);
-  if (FAILED(hr)) {  // 捕获失败时回退到原BitBlt方案
-    DeleteObject(hBitmap);
-    hBitmap = nullptr;
-  }
-}
-
-// 回退逻辑：如果DwmCaptureSnapshot失败，使用传统BitBlt
-if (!hBitmap) {
-  HDC hdc = GetDC(hwnd);
-  hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-  HDC hdcMem = CreateCompatibleDC(hdc);
-  SelectObject(hdcMem, hBitmap);
-  BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-  DeleteDC(hdcMem);
-  ReleaseDC(hwnd, hdc);
-}
-
-if (hBitmap) {
-  HDC hdcMem = CreateCompatibleDC(nullptr);
-  SelectObject(hdcMem, hBitmap);
-
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
-          }
+      // 创建DIB并调用DwmCaptureSnapshot
+      hBitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      if (hBitmap) {
+        HRESULT hr = DwmCaptureSnapshot(hwnd, hBitmap, captureSize, 0);
+        if (FAILED(hr)) {  // 捕获失败时回退到原BitBlt方案
+          DeleteObject(hBitmap);
+          hBitmap = nullptr;
         }
-      prevColor = color;
       }
+
+      // 回退逻辑：如果DwmCaptureSnapshot失败，使用传统BitBlt
+      if (!hBitmap) {
+        HDC hdc = GetDC(hwnd);
+        hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+        HDC hdcMem = CreateCompatibleDC(hdc);
+        SelectObject(hdcMem, hBitmap);
+        BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+        DeleteDC(hdcMem);
+        ReleaseDC(hwnd, hdc);
+      }
+
+      if (hBitmap) {
+        HDC hdcMem = CreateCompatibleDC(nullptr);
+        SelectObject(hdcMem, hBitmap);
+
+        // 分析颜色差异（与原逻辑一致）
+        int upperEdge = -1;
+        int lowerEdge = -1;
+        COLORREF prevColor = CLR_INVALID;
+        LONG totalBrightness = 0;
+        for (int y = 0; y < rect.bottom; y++) {
+          COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+          totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+          if (prevColor != CLR_INVALID) {
+            long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+            if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) upperEdge = y;
+              else { lowerEdge = y; break; }
+            }
+          }
+          prevColor = color;
+        }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
@@ -378,9 +372,10 @@ if (hBitmap) {
         
         lastY = client_pt.y;
 
-            // 释放资源
-            DeleteDC(hdcMem);
-            DeleteObject(hBitmap);;
+        // 释放资源
+        DeleteDC(hdcMem);
+        DeleteObject(hBitmap);
+
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
