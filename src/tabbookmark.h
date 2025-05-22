@@ -349,6 +349,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 copyDesc.BindFlags = 0;
                 ID3D11Texture2D* copyTexture = nullptr;
                 dxgiRes.device->CreateTexture2D(&copyDesc, nullptr, &copyTexture);
+
+                int upperEdge = -1;  // 新增上沿记录
+                int lowerEdge = -1;  // 新增下沿记录
                 
                 if (copyTexture) {
                   // 修正：获取设备上下文（需传递输出参数）
@@ -367,12 +370,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     context->Map(copyTexture, 0, D3D11_MAP_READ, 0, &mapped);  // 关键修正：使用已获取的context
 
       // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
+
+      BYTE* pixels = (BYTE*)mapped.pData;
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;  // 新增亮度累计
-      
-      BYTE* pixels = (BYTE*)mapped.pData;
       
       for (int y = 0; y < targetHeight; y++) {
         // 注意：DXGI返回的像素格式是BGRA（与GDI的RGB顺序不同）
