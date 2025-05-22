@@ -1,11 +1,9 @@
 #pragma comment(lib, "gdi32.lib")
-// 新增头文件（需放在文件顶部）
-#include <dwmapi.h>
+// 新增DirectX头文件和库链接（顶部添加）
+#include <d3d11.h>
 #include <dxgi1_2.h>
-#pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
-// 新增：手动定义DWM共享表面属性常量（解决未声明问题）
-#define DWMWA_SHARED_SURFACE 0x00000041
 
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
@@ -240,42 +238,45 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-// 新增：通过DWM获取窗口共享表面并提取像素数据
-bool GetWindowSurfacePixels(HWND hwnd, RECT rect, BYTE*& pixels) {
-  // 获取DWM共享表面
-  IDXGISurface* pSurface = nullptr;
-  HRESULT hr = DwmGetWindowAttribute(hwnd, DWMWA_SHARED_SURFACE, &pSurface, sizeof(pSurface));
-  if (FAILED(hr) || !pSurface) return false;
 
-  // 获取表面描述
-  DXGI_SURFACE_DESC desc;
-  pSurface->GetDesc(&desc);
-
-  // 映射表面数据
-  DXGI_MAPPED_RECT mappedRect;
-  hr = pSurface->Map(&mappedRect, DXGI_MAP_READ);
-  if (FAILED(hr)) {
-      pSurface->Release();
-      return false;
+// 新增：DirectX资源管理结构体
+struct DxgiResources {
+  ID3D11Device* device = nullptr;
+  IDXGIOutputDuplication* duplication = nullptr;
+  ~DxgiResources() {
+      if (duplication) duplication->Release();
+      if (device) device->Release();
   }
+};
 
-  // 提取指定区域（窗口右边缘8像素宽）的像素数据
-  int width = 8;
-  int height = rect.bottom;
-  pixels = new BYTE[width * height * 4]; // 32位RGBA
+// 新增：初始化DirectX截图资源（需在程序启动时调用一次）
+bool InitDxgiResources(DxgiResources& res) {
+  D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0 };
+  UINT createDeviceFlags = 0;
+  HRESULT hr = D3D11CreateDevice(
+      nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+      featureLevels, _countof(featureLevels), D3D11_SDK_VERSION,
+      &res.device, nullptr, nullptr
+  );
+  if (FAILED(hr)) return false;
 
-  for (int y = 0; y < height; y++) {
-      // 计算源行在共享表面中的偏移（假设表面与窗口客户区尺寸一致）
-      BYTE* srcRow = (BYTE*)mappedRect.pBits + y * mappedRect.Pitch;
-      // 目标区域为右边缘8像素（假设窗口宽度足够）
-      BYTE* destRow = pixels + y * width * 4;
-      memcpy(destRow, srcRow + (desc.Width - width) * 4, width * 4);
-  }
+  IDXGIDevice* dxgiDevice = nullptr;
+  hr = res.device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+  if (FAILED(hr)) return false;
 
-  // 解除映射并释放表面
-  pSurface->Unmap();
-  pSurface->Release();
-  return true;
+  IDXGIAdapter* adapter = nullptr;
+  hr = dxgiDevice->GetAdapter(&adapter);
+  dxgiDevice->Release();
+  if (FAILED(hr)) return false;
+
+  IDXGIOutput* output = nullptr;
+  hr = adapter->EnumOutputs(0, &output);
+  adapter->Release();
+  if (FAILED(hr)) return false;
+
+  hr = output->QueryInterface(__uuidof(IDXGIOutputDuplication), (void**)&res.duplication);
+  output->Release();
+  return SUCCEEDED(hr);
 }
 
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -287,6 +288,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
     static LONG lastY = -1;  // 将静态变量声明移到外层作用域
     static float remainder = 0;  // 新增剩余量用于平滑滚动
+    static DxgiResources dxgiRes;  // 全局DirectX资源
+    static bool dxgiInited = InitDxgiResources(dxgiRes);  // 初始化一次
     if (wParam == WM_NCMOUSEMOVE) {
       break;
     }
@@ -317,33 +320,85 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 20) {
-        // 新增：通过DWM共享表面获取像素数据
-        BYTE* pixels = nullptr;
-        if (GetWindowSurfacePixels(hwnd, rect, pixels)) {
-            // 原颜色分析逻辑（使用pixels替代BitBlt结果）
-            int upperEdge = -1;
-            int lowerEdge = -1;
-            COLORREF prevColor = CLR_INVALID;
-            LONG totalBrightness = 0;
+      if (client_pt.x >= rect.right - 20 && dxgiInited) {
+        // 使用DirectX获取硬件加速窗口像素
+        IDXGIResource* desktopResource = nullptr;
+        DXGI_OUTDUPL_FRAME_INFO frameInfo;
+        HRESULT hr = dxgiRes.duplication->AcquireNextFrame(0, &frameInfo, &desktopResource);
+        if (SUCCEEDED(hr) && desktopResource) {
+            ID3D11Texture2D* frameTexture = nullptr;
+            hr = desktopResource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&frameTexture);
+            desktopResource->Release();
+            
+            if (SUCCEEDED(hr)) {
+                D3D11_TEXTURE2D_DESC desc;
+                frameTexture->GetDesc(&desc);
+                
+                // 计算目标区域在屏幕中的位置
+                RECT screenRect;
+                GetWindowRect(hwnd, &screenRect);
+                int targetX = screenRect.right - 8;  // 窗口右侧8像素
+                int targetY = screenRect.top;
+                int targetWidth = 8;
+                int targetHeight = screenRect.bottom - screenRect.top;
 
-            for (int y = 0; y < rect.bottom; y++) {
-                COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]); // BGR转RGB
-                totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-                if (prevColor != CLR_INVALID) {
-                    long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-                    if (labs(static_cast<long>(color - prevColor)) > threshold) {
-                        if (upperEdge == -1) {
-                            upperEdge = y;
-                        } else {
-                            lowerEdge = y;
-                            break;
-                        }
-                    }
-                }
-                prevColor = color;
-            }
+                // 创建CPU可读的纹理副本
+                D3D11_TEXTURE2D_DESC copyDesc = desc;
+                copyDesc.Usage = D3D11_USAGE_STAGING;
+                copyDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                copyDesc.BindFlags = 0;
+                ID3D11Texture2D* copyTexture = nullptr;
+                dxgiRes.device->CreateTexture2D(&copyDesc, nullptr, &copyTexture);
+                
+                if (copyTexture) {
+                    // 复制目标区域到临时纹理
+                    dxgiRes.device->GetImmediateContext()->CopySubresourceRegion(
+                        copyTexture, 0, 0, 0, 0,
+                        frameTexture, 0,
+                        &CD3D11_BOX(targetX, targetY, 0, targetX + targetWidth, targetY + targetHeight, 1)
+                    );
 
+                    // 映射纹理获取像素数据
+                    D3D11_MAPPED_SUBRESOURCE mapped;
+                    dxgiRes.device->GetImmediateContext()->Map(copyTexture, 0, D3D11_MAP_READ, 0, &mapped);
+
+      // 分析颜色差异
+      BYTE* pixels = (BYTE*)mapped.pData;
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < targetHeight; y++) {
+        // 注意：DXGI返回的像素格式是BGRA（与GDI的RGB顺序不同）
+        COLORREF color = RGB(
+            pixels[y * mapped.RowPitch + 2],  // R分量
+            pixels[y * mapped.RowPitch + 1],  // G分量
+            pixels[y * mapped.RowPitch + 0]   // B分量
+        );
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
+        }
+      prevColor = color;
+      }
+      // 释放资源
+      dxgiRes.device->GetImmediateContext()->Unmap(copyTexture, 0);
+      copyTexture->Release();
+  }
+  frameTexture->Release();
+}
+dxgiRes.duplication->ReleaseFrame();
+}
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
@@ -384,9 +439,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
-        // 释放资源
-        delete[] pixels; // 释放像素数据内存
-        }
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
