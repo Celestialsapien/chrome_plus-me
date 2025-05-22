@@ -1,4 +1,10 @@
 #pragma comment(lib, "gdi32.lib")
+// 新增头文件（需放在文件顶部）
+#include <dwmapi.h>
+#include <dxgi1_2.h>
+#pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "dxgi.lib")
+
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -232,53 +238,41 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-// 新增：保存位图到文件的函数（移动到全局作用域）
-bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
-  HDC hdc = GetDC(nullptr);
-  BITMAP bmp;
-  GetObject(hBitmap, sizeof(BITMAP), &bmp);
+// 新增：通过DWM获取窗口共享表面并提取像素数据
+bool GetWindowSurfacePixels(HWND hwnd, RECT rect, BYTE*& pixels) {
+  // 获取DWM共享表面
+  IDXGISurface* pSurface = nullptr;
+  HRESULT hr = DwmGetWindowAttribute(hwnd, DWMWA_SHARED_SURFACE, &pSurface, sizeof(pSurface));
+  if (FAILED(hr) || !pSurface) return false;
 
-  BITMAPINFOHEADER bi;
-  bi.biSize = sizeof(BITMAPINFOHEADER);
-  bi.biWidth = bmp.bmWidth;
-  bi.biHeight = bmp.bmHeight;
-  bi.biPlanes = 1;
-  bi.biBitCount = 32;
-  bi.biCompression = BI_RGB;
-  bi.biSizeImage = 0;
-  bi.biXPelsPerMeter = 0;
-  bi.biYPelsPerMeter = 0;
-  bi.biClrUsed = 0;
-  bi.biClrImportant = 0;
+  // 获取表面描述
+  DXGI_SURFACE_DESC desc;
+  pSurface->GetDesc(&desc);
 
-  DWORD dwBmpSize = ((bmp.bmWidth * bi.biBitCount + 31) / 32) * 4 * bmp.bmHeight;
-  HANDLE hDIB = GlobalAlloc(GHND, dwBmpSize + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER));
-  LPBITMAPFILEHEADER lpfh = (LPBITMAPFILEHEADER)GlobalLock(hDIB);
-  LPBITMAPINFOHEADER lpbi = (LPBITMAPINFOHEADER)(lpfh + 1);
-  *lpbi = bi;
-
-  HANDLE hFile = CreateFile(filePath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (hFile == INVALID_HANDLE_VALUE) {
-      GlobalUnlock(hDIB);
-      GlobalFree(hDIB);
-      ReleaseDC(nullptr, hdc);
+  // 映射表面数据
+  DXGI_MAPPED_RECT mappedRect;
+  hr = pSurface->Map(&mappedRect, DXGI_MAP_READ);
+  if (FAILED(hr)) {
+      pSurface->Release();
       return false;
   }
 
-  lpfh->bfType = 0x4D42; // "BM"
-  lpfh->bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + dwBmpSize;
-  lpfh->bfReserved1 = 0;
-  lpfh->bfReserved2 = 0;
-  lpfh->bfOffBits = (DWORD)sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+  // 提取指定区域（窗口右边缘8像素宽）的像素数据
+  int width = 8;
+  int height = rect.bottom;
+  pixels = new BYTE[width * height * 4]; // 32位RGBA
 
-  GetDIBits(hdc, hBitmap, 0, (UINT)bmp.bmHeight, (LPVOID)(lpbi + 1), (BITMAPINFO*)lpbi, DIB_RGB_COLORS);
+  for (int y = 0; y < height; y++) {
+      // 计算源行在共享表面中的偏移（假设表面与窗口客户区尺寸一致）
+      BYTE* srcRow = (BYTE*)mappedRect.pBits + y * mappedRect.Pitch;
+      // 目标区域为右边缘8像素（假设窗口宽度足够）
+      BYTE* destRow = pixels + y * width * 4;
+      memcpy(destRow, srcRow + (desc.Width - width) * 4, width * 4);
+  }
 
-  DWORD dwWritten;
-  WriteFile(hFile, lpfh, lpfh->bfSize, &dwWritten, nullptr);
-  CloseHandle(hFile);
-  GlobalUnlock(hDIB);
-  GlobalFree(hDIB);
-  ReleaseDC(nullptr, hdc);
+  // 解除映射并释放表面
+  pSurface->Unmap();
+  pSurface->Release();
   return true;
 }
 
@@ -322,64 +316,32 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-            // 改动1：渲染等待机制（最多等待200ms确保窗口已渲染）
-    DWORD startTick = GetTickCount();
-    bool isRendered = false;
-    while (GetTickCount() - startTick < 200) {
-      if (IsWindowVisible(hwnd) && IsWindowEnabled(hwnd)) {
-        isRendered = true;
-        break;
-      }
-      Sleep(10); // 短暂等待避免CPU占用
-    }
-    if (!isRendered) {
-      lastY = -1;
-      remainder = 0;
-      break;
-    }
-        // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
-      BITMAPINFO bmi = {0};
-      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-      bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = rect.bottom;
-      bmi.bmiHeader.biPlanes = 1;
-      bmi.bmiHeader.biBitCount = 32;
-      bmi.bmiHeader.biCompression = BI_RGB;
+        // 新增：通过DWM共享表面获取像素数据
+        BYTE* pixels = nullptr;
+        if (GetWindowSurfacePixels(hwnd, rect, pixels)) {
+            // 原颜色分析逻辑（使用pixels替代BitBlt结果）
+            int upperEdge = -1;
+            int lowerEdge = -1;
+            COLORREF prevColor = CLR_INVALID;
+            LONG totalBrightness = 0;
 
-      BYTE* pixels = nullptr;
-      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
-      HDC hdcMem = CreateCompatibleDC(hdc);
-      SelectObject(hdcMem, hBitmap);
-      // 发送WM_PRINT消息，通知窗口将客户区内容绘制到hdcMem
-    SendMessage(hwnd, WM_PRINT, (WPARAM)hdcMem, 
-    PRF_CLIENT | PRF_ERASEBKGND);  // PRF_CLIENT：仅绘制客户区；PRF_ERASEBKGND：擦除背景
-      // 调用全局函数导出位图
-      SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
+            for (int y = 0; y < rect.bottom; y++) {
+                COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]); // BGR转RGB
+                totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+                if (prevColor != CLR_INVALID) {
+                    long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+                    if (labs(static_cast<long>(color - prevColor)) > threshold) {
+                        if (upperEdge == -1) {
+                            upperEdge = y;
+                        } else {
+                            lowerEdge = y;
+                            break;
+                        }
+                    }
+                }
+                prevColor = color;
+            }
 
-      // 分析颜色差异
-      int upperEdge = -1;  // 新增上沿记录
-      int lowerEdge = -1;  // 新增下沿记录
-      COLORREF prevColor = CLR_INVALID;
-      LONG totalBrightness = 0;  // 新增亮度累计
-      for (int y = 0; y < rect.bottom; y++) {
-        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
-        // 计算当前像素亮度并累加
-        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
-        if (prevColor != CLR_INVALID) {
-          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
-          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
-          if (labs(static_cast<long>(color - prevColor)) > threshold) {
-              if (upperEdge == -1) {
-                  upperEdge = y;
-              } else {
-                  lowerEdge = y;
-                  break;
-              }
-          }
-        }
-      prevColor = color;
-      }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
@@ -421,9 +383,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         lastY = client_pt.y;
 
         // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
+        delete[] pixels; // 释放像素数据内存
+        }
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
