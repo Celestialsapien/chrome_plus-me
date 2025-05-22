@@ -362,16 +362,18 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                       &CD3D11_BOX(targetX, targetY, 0, targetX + targetWidth, targetY + targetHeight, 1)
                   );
 
-                    // 映射纹理获取像素数据
+                    // 映射纹理获取像素数据（修正：使用context指针）
                     D3D11_MAPPED_SUBRESOURCE mapped;
-                    dxgiRes.device->GetImmediateContext()->Map(copyTexture, 0, D3D11_MAP_READ, 0, &mapped);
+                    context->Map(copyTexture, 0, D3D11_MAP_READ, 0, &mapped);  // 关键修正：使用已获取的context
 
       // 分析颜色差异
-      BYTE* pixels = (BYTE*)mapped.pData;
       int upperEdge = -1;  // 新增上沿记录
       int lowerEdge = -1;  // 新增下沿记录
       COLORREF prevColor = CLR_INVALID;
       LONG totalBrightness = 0;  // 新增亮度累计
+      
+      BYTE* pixels = (BYTE*)mapped.pData;
+      
       for (int y = 0; y < targetHeight; y++) {
         // 注意：DXGI返回的像素格式是BGRA（与GDI的RGB顺序不同）
         COLORREF color = RGB(
