@@ -2,8 +2,10 @@
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
-#include <windows.h>  // 新增：确保Windows常量定义
 #include "iaccessible.h"
+// 新增dwmapi头文件和库链接（需添加在文件顶部）
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 
 HHOOK mouse_hook = nullptr;
 
@@ -268,50 +270,73 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
       HWND hwnd = WindowFromPoint(pmouse->pt);
       RECT rect;
-      if (!GetClientRect(hwnd, &rect) || rect.bottom <= 0) break; // 确保窗口有效
+      GetClientRect(hwnd, &rect);
       
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        // 简化版：使用 WM_PRINTCLIENT 触发窗口自绘
-        HDC hdcMem = CreateCompatibleDC(nullptr);
-        HBITMAP hBitmap = CreateCompatibleBitmap(GetDC(hwnd), 8, rect.bottom);
-        SelectObject(hdcMem, hBitmap);
+// 新增颜色分析逻辑（改用DwmCaptureSnapshot）
+SIZE captureSize = {8, rect.bottom};  // 目标区域大小：8像素宽，窗口高度
+HBITMAP hBitmap = nullptr;
+BYTE* pixels = nullptr;
 
-        // 修正：使用标准标志 PRF_CLIENT（仅绘制客户区）
-        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)hdcMem, PRF_CLIENT);
+// 创建DIB用于存储截图
+BITMAPINFO bmi = {0};
+bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+bmi.bmiHeader.biWidth = captureSize.cx;
+bmi.bmiHeader.biHeight = -captureSize.cy;  // 正向扫描线（避免上下翻转）
+bmi.bmiHeader.biPlanes = 1;
+bmi.bmiHeader.biBitCount = 32;
+bmi.bmiHeader.biCompression = BI_RGB;
 
-        // 读取像素数据（直接从内存DC获取）
-        BITMAP bmp;
-        GetObject(hBitmap, sizeof(bmp), &bmp);
-        BYTE* pixels = (BYTE*)bmp.bmBits;
+// 创建DIB并调用DwmCaptureSnapshot
+hBitmap = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+if (hBitmap) {
+  HRESULT hr = DwmCaptureSnapshot(hwnd, hBitmap, captureSize, 0);
+  if (FAILED(hr)) {  // 捕获失败时回退到原BitBlt方案
+    DeleteObject(hBitmap);
+    hBitmap = nullptr;
+  }
+}
 
-        // 简化颜色分析（固定阈值，先验证是否能获取有效颜色）
-        // 新增：声明并初始化 prevColor
-        COLORREF prevColor = CLR_INVALID;  // 关键修正
-        int upperEdge = -1, lowerEdge = -1;
-        for (int y = 0; y < rect.bottom; y++) {
-            // 直接取中间列像素（第4列，避免边缘误差）
-            COLORREF color = RGB(
-                pixels[y * bmp.bmWidthBytes + 4*4 + 2],  // BGR格式转RGB
-                pixels[y * bmp.bmWidthBytes + 4*4 + 1],
-                pixels[y * bmp.bmWidthBytes + 4*4 + 0]
-            );
-            
-            // 简单阈值：颜色变化超过0x30（约48）认为是滚动条边缘
-            if (prevColor != CLR_INVALID) {
-              // 简化阈值逻辑（示例）
-              if (abs(GetRValue(color) - GetRValue(prevColor)) > 48) {  // 仅比较红色通道变化
-                  if (upperEdge == -1) {
-                      upperEdge = y;
-                  } else {
-                      lowerEdge = y;
-                      break;
-                  }
+// 回退逻辑：如果DwmCaptureSnapshot失败，使用传统BitBlt
+if (!hBitmap) {
+  HDC hdc = GetDC(hwnd);
+  hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+  HDC hdcMem = CreateCompatibleDC(hdc);
+  SelectObject(hdcMem, hBitmap);
+  BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+  DeleteDC(hdcMem);
+  ReleaseDC(hwnd, hdc);
+}
+
+if (hBitmap) {
+  HDC hdcMem = CreateCompatibleDC(nullptr);
+  SelectObject(hdcMem, hBitmap);
+
+      // 分析颜色差异
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
               }
           }
-          prevColor = color;  // 更新前一个颜色值
+        }
+      prevColor = color;
       }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
@@ -353,9 +378,9 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
-        // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
+            // 释放资源
+            DeleteDC(hdcMem);
+            DeleteObject(hBitmap);;
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
