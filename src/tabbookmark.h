@@ -4,6 +4,8 @@
 #include <dxgi1_2.h>
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "dxgi.lib")
+// 新增：手动定义DWM共享表面属性常量（解决未声明问题）
+#define DWMWA_SHARED_SURFACE 0x00000041
 
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
