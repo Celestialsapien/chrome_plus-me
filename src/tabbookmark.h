@@ -272,43 +272,108 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       POINT client_pt = pmouse->pt;
       ScreenToClient(hwnd, &client_pt);
       
-      if (client_pt.x >= rect.right - 20) {  // 检测右侧20像素边缘区域
-        HDC hdc = GetDC(hwnd);
-        
-        // 只采样中间一列（第4像素）减少计算量
-        const int sampleX = rect.right - 4;
-        // 1. 调整基底颜色采样位置到滚动条底部（避开顶部滑块区域）
-    const int baseY = rect.bottom - 20;  // 从底部向上20像素作为安全基底区域
-    COLORREF baseColor = GetPixel(hdc, sampleX, baseY);
-    int baseGray = (GetRValue(baseColor) * 299 + GetGValue(baseColor) * 587 + GetBValue(baseColor) * 114) / 1000;  // 灰度计算
-    
-    // 2. 遍历整个有效区域（从顶部10像素到底部30像素，避开可能的底部干扰）
-    int sliderGrayCount = 0;
-    const int GRAY_DIFF_THRESHOLD = 30;  // 灰度差异阈值
-    
-    for (int y = 10; y < rect.bottom - 30; y++) {  // 底部多留10像素避开状态栏
-      COLORREF currentColor = GetPixel(hdc, sampleX, y);
-      int currentGray = (GetRValue(currentColor) * 299 + GetGValue(currentColor) * 587 + GetBValue(currentColor) * 114) / 1000;
-      
-      if (abs(currentGray - baseGray) > GRAY_DIFF_THRESHOLD) {
-        sliderGrayCount++;  // 统计与基底灰度差异大的像素（滑块区域）
+      if (client_pt.x >= rect.right - 20) {
+        // 新增：保存位图到文件的函数
+bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
+  HDC hdc = GetDC(nullptr);
+  BITMAP bmp;
+  GetObject(hBitmap, sizeof(BITMAP), &bmp);
+
+  BITMAPINFOHEADER bi;
+  bi.biSize = sizeof(BITMAPINFOHEADER);
+  bi.biWidth = bmp.bmWidth;
+  bi.biHeight = bmp.bmHeight;
+  bi.biPlanes = 1;
+  bi.biBitCount = 32;
+  bi.biCompression = BI_RGB;
+  bi.biSizeImage = 0;
+  bi.biXPelsPerMeter = 0;
+  bi.biYPelsPerMeter = 0;
+  bi.biClrUsed = 0;
+  bi.biClrImportant = 0;
+
+  DWORD dwBmpSize = ((bmp.bmWidth * bi.biBitCount + 31) / 32) * 4 * bmp.bmHeight;
+  HANDLE hDIB = GlobalAlloc(GHND, dwBmpSize + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER));
+  LPBITMAPFILEHEADER lpfh = (LPBITMAPFILEHEADER)GlobalLock(hDIB);
+  LPBITMAPINFOHEADER lpbi = (LPBITMAPINFOHEADER)(lpfh + 1);
+  *lpbi = bi;
+
+  HANDLE hFile = CreateFile(filePath, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (hFile == INVALID_HANDLE_VALUE) {
+      GlobalUnlock(hDIB);
+      GlobalFree(hDIB);
+      ReleaseDC(nullptr, hdc);
+      return false;
+  }
+
+  lpfh->bfType = 0x4D42; // "BM"
+  lpfh->bfSize = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + dwBmpSize;
+  lpfh->bfReserved1 = 0;
+  lpfh->bfReserved2 = 0;
+  lpfh->bfOffBits = (DWORD)sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+
+  GetDIBits(hdc, hBitmap, 0, (UINT)bmp.bmHeight, (LPVOID)(lpbi + 1), (BITMAPINFO*)lpbi, DIB_RGB_COLORS);
+
+  DWORD dwWritten;
+  WriteFile(hFile, lpfh, lpfh->bfSize, &dwWritten, nullptr);
+  CloseHandle(hFile);
+  GlobalUnlock(hDIB);
+  GlobalFree(hDIB);
+  ReleaseDC(nullptr, hdc);
+  return true;
+}
+        // 新增颜色分析逻辑
+      HDC hdc = GetDC(hwnd);
+      BITMAPINFO bmi = {0};
+      bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+      bmi.bmiHeader.biWidth = 8;
+      bmi.bmiHeader.biHeight = rect.bottom;
+      bmi.bmiHeader.biPlanes = 1;
+      bmi.bmiHeader.biBitCount = 32;
+      bmi.bmiHeader.biCompression = BI_RGB;
+
+      BYTE* pixels = nullptr;
+      HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
+      HDC hdcMem = CreateCompatibleDC(hdc);
+      SelectObject(hdcMem, hBitmap);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      // 新增：导出取样位图（测试路径，可根据需要修改）
+      SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
+
+      // 分析颜色差异
+      int upperEdge = -1;  // 新增上沿记录
+      int lowerEdge = -1;  // 新增下沿记录
+      COLORREF prevColor = CLR_INVALID;
+      LONG totalBrightness = 0;  // 新增亮度累计
+      for (int y = 0; y < rect.bottom; y++) {
+        COLORREF color = RGB(pixels[y * 8 * 4 + 2], pixels[y * 8 * 4 + 1], pixels[y * 8 * 4 + 0]);
+        // 计算当前像素亮度并累加
+        totalBrightness += (GetRValue(color) + GetGValue(color) + GetBValue(color)) / 3;
+        if (prevColor != CLR_INVALID) {
+          // 动态阈值：深色模式用0x101010，浅色模式保持0x202020
+          long threshold = (totalBrightness / (y+1) < 128) ? 0x101010 : 0x202020;
+          if (labs(static_cast<long>(color - prevColor)) > threshold) {
+              if (upperEdge == -1) {
+                  upperEdge = y;
+              } else {
+                  lowerEdge = y;
+                  break;
+              }
+          }
+        }
+      prevColor = color;
       }
-    }
+      int scrollbarHeight = 0;
+      if (upperEdge != -1 && lowerEdge != -1) {
+          scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
+      }
 
-    // 3. 计算滑块高度（至少保留10像素）
-    int scrollbarHeight = max(sliderGrayCount, 10);
-    
-        // 动态调整滚动量系数
-        float ratio = (float)rect.bottom / scrollbarHeight;
-        custom_wheel_delta = max(1, (int)(ratio * 1.2));
-
-        
-// 调试输出（新增底部基底参数）
-wchar_t debugInfo[256];
-swprintf_s(debugInfo, L"[GrayScrollDebug] baseY:%d | baseGray:%d | sliderGrayCount:%d | scrollbarHeight:%d\n",
-          baseY, baseGray, sliderGrayCount, scrollbarHeight);
-OutputDebugString(debugInfo);
-
+      // 计算动态滚动量
+      float ratio = 0.0f;
+      if (scrollbarHeight > 0) {
+        ratio = (float)rect.bottom / scrollbarHeight;
+        custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
+      }
 
         if (lastY == -1) {
           lastY = client_pt.y;
@@ -339,7 +404,9 @@ OutputDebugString(debugInfo);
         lastY = client_pt.y;
 
         // 释放资源
-        ReleaseDC(hwnd, hdc);  // 仅需释放DC，无需处理复杂位图
+        DeleteDC(hdcMem);
+        DeleteObject(hBitmap);
+        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
