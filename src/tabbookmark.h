@@ -232,9 +232,8 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
   return false;
 }
-// 新增：保存位图到文件的函数（移动到全局作用域）
-bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
-  HDC hdc = GetDC(nullptr);
+// 修正：保存位图时使用窗口DC而非全局屏幕DC
+bool SaveBitmapToFile(HDC hdc, HBITMAP hBitmap, const wchar_t* filePath) { // 新增hdc参数
   BITMAP bmp;
   GetObject(hBitmap, sizeof(BITMAP), &bmp);
 
@@ -261,7 +260,6 @@ bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
   if (hFile == INVALID_HANDLE_VALUE) {
       GlobalUnlock(hDIB);
       GlobalFree(hDIB);
-      ReleaseDC(nullptr, hdc);
       return false;
   }
 
@@ -271,6 +269,7 @@ bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
   lpfh->bfReserved2 = 0;
   lpfh->bfOffBits = (DWORD)sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
 
+  // 使用传入的窗口DC获取位图数据（关键修正）
   GetDIBits(hdc, hBitmap, 0, (UINT)bmp.bmHeight, (LPVOID)(lpbi + 1), (BITMAPINFO*)lpbi, DIB_RGB_COLORS);
 
   DWORD dwWritten;
@@ -278,7 +277,6 @@ bool SaveBitmapToFile(HBITMAP hBitmap, const wchar_t* filePath) {
   CloseHandle(hFile);
   GlobalUnlock(hDIB);
   GlobalFree(hDIB);
-  ReleaseDC(nullptr, hdc);
   return true;
 }
 
@@ -323,7 +321,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       if (client_pt.x >= rect.right - 20) {
         // 新增颜色分析逻辑
-      HDC hdc = GetDC(hwnd);
+      HDC hdc = GetDC(hwnd);  // 获取窗口DC
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
       bmi.bmiHeader.biWidth = 8;
@@ -337,8 +335,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       HDC hdcMem = CreateCompatibleDC(hdc);
       SelectObject(hdcMem, hBitmap);
       BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
-      // 调用全局函数导出位图
-      SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
+      // 修正：传递窗口DC和hBitmap到保存函数（关键修正）
+      SaveBitmapToFile(hdc, hBitmap, L"edge_sample.bmp");
 
       // 分析颜色差异
       int upperEdge = -1;  // 新增上沿记录
