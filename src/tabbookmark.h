@@ -322,7 +322,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        // 改动1：渲染等待机制（最多等待200ms确保窗口已渲染）
+            // 改动1：渲染等待机制（最多等待200ms确保窗口已渲染）
     DWORD startTick = GetTickCount();
     bool isRendered = false;
     while (GetTickCount() - startTick < 200) {
@@ -353,8 +353,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       SelectObject(hdcMem, hBitmap);
       // 先用PrintWindow获取完整客户区渲染结果
     PrintWindow(hwnd, hdcMem, PW_CLIENTONLY); 
-    // 再用BitBlt精准截取右侧边缘8像素宽的区域
-    BitBlt(hdcMem, 0, 0, 8, actualHeight, hdc, rect.right - 8, 0, SRCCOPY);
+      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
       // 调用全局函数导出位图
       SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
 
