@@ -351,12 +351,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 dxgiRes.device->CreateTexture2D(&copyDesc, nullptr, &copyTexture);
                 
                 if (copyTexture) {
-                    // 复制目标区域到临时纹理
-                    dxgiRes.device->GetImmediateContext()->CopySubresourceRegion(
-                        copyTexture, 0, 0, 0, 0,
-                        frameTexture, 0,
-                        &CD3D11_BOX(targetX, targetY, 0, targetX + targetWidth, targetY + targetHeight, 1)
-                    );
+                  // 修正：获取设备上下文（需传递输出参数）
+                  ID3D11DeviceContext* context = nullptr;
+                  dxgiRes.device->GetImmediateContext(&context);  // 关键修复：添加输出参数
+
+                  // 复制目标区域到临时纹理
+                  context->CopySubresourceRegion(
+                      copyTexture, 0, 0, 0, 0,
+                      frameTexture, 0,
+                      &CD3D11_BOX(targetX, targetY, 0, targetX + targetWidth, targetY + targetHeight, 1)
+                  );
 
                     // 映射纹理获取像素数据
                     D3D11_MAPPED_SUBRESOURCE mapped;
@@ -391,9 +395,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
       prevColor = color;
       }
-      // 释放资源
-      dxgiRes.device->GetImmediateContext()->Unmap(copyTexture, 0);
+      // 释放资源（修正：使用context指针）
+      context->Unmap(copyTexture, 0);
       copyTexture->Release();
+      context->Release();  // 新增：释放设备上下文
   }
   frameTexture->Release();
 }
