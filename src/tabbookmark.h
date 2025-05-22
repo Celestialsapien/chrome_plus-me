@@ -322,12 +322,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
+        // 改动1：渲染等待机制（最多等待200ms确保窗口已渲染）
+    DWORD startTick = GetTickCount();
+    bool isRendered = false;
+    while (GetTickCount() - startTick < 200) {
+      if (IsWindowVisible(hwnd) && IsWindowEnabled(hwnd)) {
+        isRendered = true;
+        break;
+      }
+      Sleep(10); // 短暂等待避免CPU占用
+    }
+    if (!isRendered) {
+      lastY = -1;
+      remainder = 0;
+      break;
+    }
         // 新增颜色分析逻辑
       HDC hdc = GetDC(hwnd);
       BITMAPINFO bmi = {0};
       bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
       bmi.bmiHeader.biWidth = 8;
-      bmi.bmiHeader.biHeight = -rect.bottom;
+      bmi.bmiHeader.biHeight = rect.bottom;
       bmi.bmiHeader.biPlanes = 1;
       bmi.bmiHeader.biBitCount = 32;
       bmi.bmiHeader.biCompression = BI_RGB;
@@ -335,9 +350,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       BYTE* pixels = nullptr;
       HBITMAP hBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void**)&pixels, NULL, 0);
       HDC hdcMem = CreateCompatibleDC(hdc);
-      HBITMAP hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
       SelectObject(hdcMem, hBitmap);
-      BitBlt(hdcMem, 0, 0, 8, rect.bottom, hdc, rect.right - 8, 0, SRCCOPY);
+      // 先用PrintWindow获取完整客户区渲染结果
+    PrintWindow(hwnd, hdcMem, PW_CLIENTONLY); 
+    // 再用BitBlt精准截取右侧边缘8像素宽的区域
+    BitBlt(hdcMem, 0, 0, 8, actualHeight, hdc, rect.right - 8, 0, SRCCOPY);
       // 调用全局函数导出位图
       SaveBitmapToFile(hBitmap, L"edge_sample.bmp");
 
@@ -405,7 +422,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         lastY = client_pt.y;
 
         // 释放资源
-        SelectObject(hdcMem, hOldBitmap);
         DeleteDC(hdcMem);
         DeleteObject(hBitmap);
         ReleaseDC(hwnd, hdc);
