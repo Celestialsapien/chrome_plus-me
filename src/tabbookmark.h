@@ -5,6 +5,7 @@
 
 #include "iaccessible.h"
 #include <UIAutomationClient.h>
+#include <UIAutomationTypes.h>  // 新增：包含UIA_Rect定义
 
 
 HHOOK mouse_hook = nullptr;
@@ -327,19 +328,27 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           }
         }
 
-        // 获取滚动条边界（修正：使用UIA_Rect）
-        RECT scrollBarRect = {0};
-        if (pScrollBar != nullptr) {
-          UIA_Rect uiaRect;
-          hr = pScrollBar->GetCurrentBoundingRectangle(&uiaRect);
-          if (SUCCEEDED(hr)) {
-            // UIA_Rect的left/top/width/height转为RECT的left/top/right/bottom
+        // 获取滚动条边界（修正：通过属性获取）
+    RECT scrollBarRect = {0};
+    if (pScrollBar != nullptr) {
+      VARIANT varRect;
+      hr = pScrollBar->GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId, &varRect);
+      if (SUCCEEDED(hr) && varRect.vt == VT_R8ARRAY) { // 边界属性为双精度数组
+        SAFEARRAY* psa = varRect.parray;
+        if (psa && psa->cDims == 1 && psa->rgsabound[0].cElements == 4) {
+          double* pData;
+          if (SUCCEEDED(SafeArrayAccessData(psa, (void**)&pData))) {
+            // UIA_Rect结构：left, top, width, height
+            UIA_Rect uiaRect = {pData[0], pData[1], pData[2], pData[3]};
             scrollBarRect.left = (LONG)uiaRect.left;
             scrollBarRect.top = (LONG)uiaRect.top;
             scrollBarRect.right = (LONG)(uiaRect.left + uiaRect.width);
             scrollBarRect.bottom = (LONG)(uiaRect.top + uiaRect.height);
+            SafeArrayUnaccessData(psa);
           }
         }
+      }
+    }
 
         // 计算滚动条高度
         int scrollbarHeight = scrollBarRect.bottom - scrollBarRect.top;
