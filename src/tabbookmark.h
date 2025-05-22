@@ -17,6 +17,14 @@ int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
+// 添加：安全释放COM接口的模板函数
+template<typename T>
+void SafeRelease(T*& p) {
+    if (p) {
+        p->Release();
+        p = nullptr;
+    }
+}
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -288,19 +296,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
             (void**)&pAutomation
           );
         }
-    
+
         // 获取窗口对应的自动化元素
         if (SUCCEEDED(hr)) {
           hr = pAutomation->ElementFromHandle(hwnd, &pElement);
         }
-    
-        // 查找垂直滚动条（根据自动化属性筛选）
+
+        // 查找垂直滚动条
         IUIAutomationElement* pScrollBar = nullptr;
         if (SUCCEEDED(hr)) {
           IUIAutomationCondition* pCondition = nullptr;
-          VARIANT varProp;
-          varProp.vt = VT_I4;
-          varProp.lVal = UIA_ScrollBarControlTypeId; // 滚动条控件类型
+          VARIANT varProp = {VT_I4, UIA_ScrollBarControlTypeId};
           hr = pAutomation->CreatePropertyCondition(
             UIA_ControlTypePropertyId,
             varProp,
@@ -313,31 +319,36 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
               int count = 0;
               pScrollBars->get_Length(&count);
               if (count > 0) {
-                pScrollBars->GetElement(0, &pScrollBar); // 取第一个滚动条
+                pScrollBars->GetElement(0, &pScrollBar);
               }
+              SafeRelease(pScrollBars); // 释放数组接口
             }
             SafeRelease(pCondition);
           }
         }
-    
-        // 获取滚动条边界
+
+        // 获取滚动条边界（修正：使用UIA_Rect）
         RECT scrollBarRect = {0};
         if (pScrollBar != nullptr) {
-          VARIANT varRect;
-          hr = pScrollBar->GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId, &varRect);
-          if (SUCCEEDED(hr) && varRect.vt == VT_RECT) {
-            scrollBarRect = varRect.rectVal;
+          UIA_Rect uiaRect;
+          hr = pScrollBar->GetCurrentBoundingRectangle(&uiaRect);
+          if (SUCCEEDED(hr)) {
+            // UIA_Rect的left/top/width/height转为RECT的left/top/right/bottom
+            scrollBarRect.left = (LONG)uiaRect.left;
+            scrollBarRect.top = (LONG)uiaRect.top;
+            scrollBarRect.right = (LONG)(uiaRect.left + uiaRect.width);
+            scrollBarRect.bottom = (LONG)(uiaRect.top + uiaRect.height);
           }
         }
-    
-        // 计算滚动条高度（替代原颜色分析）
+
+        // 计算滚动条高度
         int scrollbarHeight = scrollBarRect.bottom - scrollBarRect.top;
         if (scrollbarHeight > 0) {
           float ratio = (float)rect.bottom / scrollbarHeight;
-          custom_wheel_delta = max(1, (int)(ratio * 1.2)); // 动态调整滚动量系数
+          custom_wheel_delta = max(1, (int)(ratio * 1.2));
         }
-    
-        // 释放资源
+
+        // 释放资源（使用SafeRelease）
         SafeRelease(pScrollBar);
         SafeRelease(pElement);
         SafeRelease(pAutomation);
@@ -371,10 +382,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         
         lastY = client_pt.y;
 
-        // 释放资源
-        DeleteDC(hdcMem);
-        DeleteObject(hBitmap);
-        ReleaseDC(hwnd, hdc);
       } else {
         lastY = -1;
         remainder = 0;  // 离开时重置剩余量
