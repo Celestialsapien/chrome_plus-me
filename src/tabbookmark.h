@@ -1,12 +1,8 @@
 #pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "UIAutomationClient.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-#include <UIAutomationClient.h>
-#include <UIAutomationTypes.h>  // 新增：包含UIA_Rect定义
-
 
 HHOOK mouse_hook = nullptr;
 
@@ -18,14 +14,6 @@ int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
 #define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
-// 添加：安全释放COM接口的模板函数
-template<typename T>
-void SafeRelease(T*& p) {
-    if (p) {
-        p->Release();
-        p = nullptr;
-    }
-}
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
 }
@@ -245,6 +233,7 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+float ratio = 0.0f;
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
@@ -285,83 +274,33 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       ScreenToClient(hwnd, &client_pt);
       
       if (client_pt.x >= rect.right - 20) {
-        IUIAutomation* pAutomation = nullptr;
-        IUIAutomationElement* pElement = nullptr;
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        if (SUCCEEDED(hr)) {
-          hr = CoCreateInstance(
-            __uuidof(CUIAutomation),
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            __uuidof(IUIAutomation),
-            (void**)&pAutomation
-          );
-        }
+       // 新增：提取标签页标题中的ratio值
 
-        // 获取窗口对应的自动化元素
-        if (SUCCEEDED(hr)) {
-          hr = pAutomation->ElementFromHandle(hwnd, &pElement);
-        }
+      HWND topHwnd = GetTopWnd(GetFocus());  // 获取顶层窗口句柄（需确认GetTopWnd是否可用）
+      if (topHwnd) {
+        wchar_t title[256] = {0};
+        GetWindowTextW(topHwnd, title, _countof(title));  // 获取窗口标题
 
-        // 查找垂直滚动条
-        IUIAutomationElement* pScrollBar = nullptr;
-        if (SUCCEEDED(hr)) {
-          IUIAutomationCondition* pCondition = nullptr;
-          VARIANT varProp = {VT_I4, UIA_ScrollBarControlTypeId};
-          hr = pAutomation->CreatePropertyCondition(
-            UIA_ControlTypePropertyId,
-            varProp,
-            &pCondition
-          );
-          if (SUCCEEDED(hr)) {
-            IUIAutomationElementArray* pScrollBars = nullptr;
-            hr = pElement->FindAll(TreeScope_Descendants, pCondition, &pScrollBars);
-            if (SUCCEEDED(hr) && pScrollBars != nullptr) {
-              int count = 0;
-              pScrollBars->get_Length(&count);
-              if (count > 0) {
-                pScrollBars->GetElement(0, &pScrollBar);
-              }
-              SafeRelease(pScrollBars); // 释放数组接口
-            }
-            SafeRelease(pCondition);
-          }
-        }
-
-        // 获取滚动条边界（修正：通过属性获取）
-    RECT scrollBarRect = {0};
-    if (pScrollBar != nullptr) {
-      VARIANT varRect;
-      hr = pScrollBar->GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId, &varRect);
-      if (SUCCEEDED(hr) && varRect.vt == VT_R8ARRAY) { // 边界属性为双精度数组
-        SAFEARRAY* psa = varRect.parray;
-        if (psa && psa->cDims == 1 && psa->rgsabound[0].cElements == 4) {
-          double* pData;
-          if (SUCCEEDED(SafeArrayAccessData(psa, (void**)&pData))) {
-            // UIA_Rect结构：left, top, width, height
-            UIA_Rect uiaRect = {pData[0], pData[1], pData[2], pData[3]};
-            scrollBarRect.left = (LONG)uiaRect.left;
-            scrollBarRect.top = (LONG)uiaRect.top;
-            scrollBarRect.right = (LONG)(uiaRect.left + uiaRect.width);
-            scrollBarRect.bottom = (LONG)(uiaRect.top + uiaRect.height);
-            SafeArrayUnaccessData(psa);
+        // 解析标题中的"Ratio: X.XX"部分
+        const wchar_t* ratioPrefix = L"[";
+        size_t prefixLen = wcslen(ratioPrefix);
+        wchar_t* ratioStart = wcsstr(title, ratioPrefix);
+        if (ratioStart) {
+          ratioStart += prefixLen;  // 定位到数值起始位置
+          wchar_t* ratioEnd = wcschr(ratioStart, ']');  // 找到结束符
+          if (ratioEnd) {
+            *ratioEnd = L'\0';  // 截断字符串便于转换
+            ratio = (float)_wtof(ratioStart);  // 转换为浮点数
           }
         }
       }
-    }
+    
 
-        // 计算滚动条高度
-        int scrollbarHeight = scrollBarRect.bottom - scrollBarRect.top;
-        if (scrollbarHeight > 0) {
-          float ratio = (float)rect.bottom / scrollbarHeight;
-          custom_wheel_delta = max(1, (int)(ratio * 1.2));
-        }
-
-        // 释放资源（使用SafeRelease）
-        SafeRelease(pScrollBar);
-        SafeRelease(pElement);
-        SafeRelease(pAutomation);
-        CoUninitialize();
+      // 计算动态滚动量
+      
+      if (ratio > 0) {
+        custom_wheel_delta = max(1, (int)(ratio)); // 动态调整滚动量系数
+      }
 
         if (lastY == -1) {
           lastY = client_pt.y;
