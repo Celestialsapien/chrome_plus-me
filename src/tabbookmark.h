@@ -1,11 +1,10 @@
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "dwmapi.lib")  // 新增：链接dwmapi库
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
 #include "iaccessible.h"
-// 新增dwmapi头文件和库链接（需添加在文件顶部）
-#include <dwmapi.h>
-#pragma comment(lib, "dwmapi.lib")
+#include <dwmapi.h>  // 新增：包含dwmapi头文件
 
 HHOOK mouse_hook = nullptr;
 
