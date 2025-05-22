@@ -2,6 +2,7 @@
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
+#include <windows.h>  // 新增：确保Windows常量定义
 #include "iaccessible.h"
 
 HHOOK mouse_hook = nullptr;
@@ -278,8 +279,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         HBITMAP hBitmap = CreateCompatibleBitmap(GetDC(hwnd), 8, rect.bottom);
         SelectObject(hdcMem, hBitmap);
 
-        // 触发窗口将客户区内容绘制到内存DC
-        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)hdcMem, PRF_CLIENTONLY);
+        // 修正：使用标准标志 PRF_CLIENT（仅绘制客户区）
+        SendMessage(hwnd, WM_PRINTCLIENT, (WPARAM)hdcMem, PRF_CLIENT);
 
         // 读取像素数据（直接从内存DC获取）
         BITMAP bmp;
@@ -287,6 +288,8 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         BYTE* pixels = (BYTE*)bmp.bmBits;
 
         // 简化颜色分析（固定阈值，先验证是否能获取有效颜色）
+        // 新增：声明并初始化 prevColor
+        COLORREF prevColor = CLR_INVALID;  // 关键修正
         int upperEdge = -1, lowerEdge = -1;
         for (int y = 0; y < rect.bottom; y++) {
             // 直接取中间列像素（第4列，避免边缘误差）
@@ -297,14 +300,19 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
             );
             
             // 简单阈值：颜色变化超过0x30（约48）认为是滚动条边缘
-            if (upperEdge == -1) {
-                upperEdge = y;
-            } else if (abs(color - prevColor) > 0x300000) { // 仅比较红色通道（滚动条常为纯色）
-                lowerEdge = y;
-                break;
-            }
-            prevColor = color;
-        }
+            if (prevColor != CLR_INVALID) {
+              // 简化阈值逻辑（示例）
+              if (abs(GetRValue(color) - GetRValue(prevColor)) > 48) {  // 仅比较红色通道变化
+                  if (upperEdge == -1) {
+                      upperEdge = y;
+                  } else {
+                      lowerEdge = y;
+                      break;
+                  }
+              }
+          }
+          prevColor = color;  // 更新前一个颜色值
+      }
       int scrollbarHeight = 0;
       if (upperEdge != -1 && lowerEdge != -1) {
           scrollbarHeight = lowerEdge - upperEdge;  // 计算实际滑块高度
