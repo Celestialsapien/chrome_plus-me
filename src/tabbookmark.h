@@ -234,17 +234,22 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
 
 float ratio = 0.0f;
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    // 新增：声明静态变量存储惯性滚动参数
+    static int pending_inertia_scroll = 0;
+    static POINT pending_inertia_pt = {0, 0};
+    static DWORD pending_inertia_time = 0;
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
-  // 处理延迟的惯性滚动（100ms后执行）
+  // 处理延迟的惯性滚动（16ms后执行）
   if (pending_inertia_scroll != 0) {
     DWORD current_tick = GetTickCount();
     if (current_tick - pending_inertia_time >= 16) {
       HWND hwnd = WindowFromPoint(pending_inertia_pt);
+      // 修正SendMessage参数（补充完整wParam和lParam）
       SendMessage(hwnd, WM_MOUSEWHEEL,
-                  MAKEWPARAM(0, pending_inertia_scroll),
-                  MAKELPARAM(pending_inertia_pt.x, pending_inertia_pt.y));
+                  MAKEWPARAM(0, pending_inertia_scroll),  // 正确构造wParam
+                  MAKELPARAM(pending_inertia_pt.x, pending_inertia_pt.y));  // 正确构造lParam
       pending_inertia_scroll = 0;  // 重置标记
     }
   }
@@ -337,11 +342,11 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
                       // 新增：计算0.2倍总滚动量的惯性滚动（取整）
-          int inertia_scroll = static_cast<int>(scrollAmount * 0.2f);
-          if (inertia_scroll != 0) {
-            pending_inertia_scroll = inertia_scroll;
-            pending_inertia_pt = pmouse->pt;  // 保存当前鼠标位置
-            pending_inertia_time = GetTickCount();  // 记录当前时间戳
+      int inertia_scroll = static_cast<int>(scrollAmount * 0.2f);
+      if (inertia_scroll != 0) {
+        pending_inertia_scroll = inertia_scroll;
+        pending_inertia_pt = pmouse->pt;  // 保存当前鼠标位置
+        pending_inertia_time = GetTickCount();  // 记录当前时间戳
           }
         }
         
