@@ -1,4 +1,3 @@
-#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -11,8 +10,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 0.3f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.2f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -238,6 +237,17 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
   }
+  // 处理延迟的惯性滚动（100ms后执行）
+  if (pending_inertia_scroll != 0) {
+    DWORD current_tick = GetTickCount();
+    if (current_tick - pending_inertia_time >= 16) {
+      HWND hwnd = WindowFromPoint(pending_inertia_pt);
+      SendMessage(hwnd, WM_MOUSEWHEEL,
+                  MAKEWPARAM(0, pending_inertia_scroll),
+                  MAKELPARAM(pending_inertia_pt.x, pending_inertia_pt.y));
+      pending_inertia_scroll = 0;  // 重置标记
+    }
+  }
 
   do {
     PMOUSEHOOKSTRUCT pmouse = (PMOUSEHOOKSTRUCT)lParam; // 移动声明到外层
@@ -291,7 +301,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           if (ratioEnd) {
             *ratioEnd = L'\0';  // 截断字符串便于转换
             ratio = (float)_wtof(ratioStart);  // 转换为浮点数
-            if (ratio <= 0) ratio = 1.0f;  // 新增：避免无效值
           }
         }
       }
@@ -315,15 +324,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
-
-        // 优化余量控制：限制在[-0.999f, 0.999f]范围内
-        if (remainder >= 1.0f) {
-          actualScroll += 1;
-          remainder -= 1.0f;
-        } else if (remainder <= -1.0f) {
-          actualScroll -= 1;
-          remainder += 1.0f;
-        }
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
@@ -336,6 +336,13 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           SendMessage(hwnd, WM_MOUSEWHEEL, 
                       MAKEWPARAM(0, scrollAmount),
                       MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+                      // 新增：计算0.2倍总滚动量的惯性滚动（取整）
+          int inertia_scroll = static_cast<int>(scrollAmount * 0.2f);
+          if (inertia_scroll != 0) {
+            pending_inertia_scroll = inertia_scroll;
+            pending_inertia_pt = pmouse->pt;  // 保存当前鼠标位置
+            pending_inertia_time = GetTickCount();  // 记录当前时间戳
+          }
         }
         
         lastY = client_pt.y;
