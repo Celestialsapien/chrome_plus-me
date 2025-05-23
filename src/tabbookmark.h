@@ -1,3 +1,4 @@
+#pragma comment(lib, "gdi32.lib")
 #ifndef TABBOOKMARK_H_
 #define TABBOOKMARK_H_
 
@@ -10,8 +11,8 @@ HHOOK mouse_hook = nullptr;
 // 增加平滑滚动参数
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
-#define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
+#define SMOOTH_FACTOR 0.3f        // 提高平滑因子（原0.2）
+#define SCROLL_THRESHOLD 0.2f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -274,8 +275,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       
       if (client_pt.x >= rect.right - 20) {
        // 新增：提取标签页标题中的ratio值
-       // 新增：提取标签页标题中的ratio值（默认1.0f）
-      float current_ratio = 1.0f;  // 默认值
+
       HWND topHwnd = GetTopWnd(GetFocus());  // 获取顶层窗口句柄（需确认GetTopWnd是否可用）
       if (topHwnd) {
         wchar_t title[256] = {0};
@@ -291,11 +291,12 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
           if (ratioEnd) {
             *ratioEnd = L'\0';  // 截断字符串便于转换
             ratio = (float)_wtof(ratioStart);  // 转换为浮点数
+            if (ratio <= 0) ratio = 1.0f;  // 新增：避免无效值
           }
         }
       }
-      ratio = current_ratio;  // 最终使用解析值或默认值
     
+
       // 计算动态滚动量
       
       if (ratio > 0) {
@@ -314,6 +315,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         // 分离整数和小数部分
         int actualScroll = static_cast<int>(smoothedDelta);
         remainder = smoothedDelta - actualScroll;
+
+        // 优化余量控制：限制在[-0.999f, 0.999f]范围内
+        if (remainder >= 1.0f) {
+          actualScroll += 1;
+          remainder -= 1.0f;
+        } else if (remainder <= -1.0f) {
+          actualScroll -= 1;
+          remainder += 1.0f;
+        }
         
         // 当余量超过阈值时强制滚动
         if (abs(remainder) >= SCROLL_THRESHOLD) {
