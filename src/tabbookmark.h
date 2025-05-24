@@ -11,7 +11,7 @@ HHOOK mouse_hook = nullptr;
 #ifndef CUSTOM_WHEEL_DELTA
 int custom_wheel_delta = 1;  // 替换原来的 CUSTOM_WHEEL_DELTA 宏定义
 #define SMOOTH_FACTOR 1.0f        // 提高平滑因子（原0.2）
-#define SCROLL_THRESHOLD 0.001f     // 降低滚动阈值（原0.5）
+#define SCROLL_THRESHOLD 1.0f     // 降低滚动阈值（原0.5）
 #endif
 bool IsPressed(int key) {
   return key && (::GetKeyState(key) & KEY_PRESSED) != 0;
@@ -232,16 +232,6 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
-// 新增：滚动动画状态结构体
-struct ScrollAnimation {
-  bool active = false;          // 动画是否激活
-  DWORD start_time = 0;         // 动画开始时间（ms）
-  int total_scroll = 0;         // 总需要滚动的量
-  int sent_scroll = 0;          // 已发送的滚动量
-  DWORD duration = 300;         // 动画持续时间（ms，可根据需求调整）
-};
-ScrollAnimation scroll_anim;      // 全局动画状态
-
 float ratio = 0.0f;
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
   if (nCode != HC_ACTION) {
@@ -272,37 +262,6 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       remainder = 0;
       break;       // 左键拖动时跳过自定义滚动
     }
-
-    // 新增：处理滚动动画更新
-    if (scroll_anim.active) {
-      DWORD current_time = GetTickCount();
-      DWORD elapsed = current_time - scroll_anim.start_time;
-      HWND hwnd = WindowFromPoint(pmouse->pt);  // 使用当前鼠标位置的窗口
-
-      if (elapsed >= scroll_anim.duration) {
-          // 动画结束，发送剩余量
-          int remaining = scroll_anim.total_scroll - scroll_anim.sent_scroll;
-          if (remaining != 0) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                         MAKEWPARAM(0, remaining), 
-                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              scroll_anim.sent_scroll += remaining;
-          }
-          scroll_anim.active = false;  // 重置动画状态
-      } else {
-          // 线性插值计算当前应发送的滚动量
-          float progress = (float)elapsed / scroll_anim.duration;
-          int target_sent = (int)(scroll_anim.total_scroll * progress);
-          int delta = target_sent - scroll_anim.sent_scroll;
-          
-          if (delta != 0) {
-              SendMessage(hwnd, WM_MOUSEWHEEL, 
-                         MAKEWPARAM(0, delta), 
-                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-              scroll_anim.sent_scroll = target_sent;
-          }
-      }
-  }
 
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
@@ -363,15 +322,10 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          // 启动/更新滚动动画
-          if (!scroll_anim.active) {
-            scroll_anim.active = true;
-            scroll_anim.start_time = GetTickCount();
-            scroll_anim.total_scroll = 0;
-            scroll_anim.sent_scroll = 0;
+          SendMessage(hwnd, WM_MOUSEWHEEL, 
+                      MAKEWPARAM(0, scrollAmount),
+                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
         }
-        scroll_anim.total_scroll += scrollAmount;  // 累加新的滚动量
-    }
         
         lastY = client_pt.y;
 
