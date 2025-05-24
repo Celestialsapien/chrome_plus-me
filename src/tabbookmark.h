@@ -232,26 +232,20 @@ bool HandleBookmark(WPARAM wParam, PMOUSEHOOKSTRUCT pmouse) {
   return false;
 }
 
+// 新增：滚动动画状态结构体
+struct ScrollAnimation {
+  bool active = false;          // 动画是否激活
+  DWORD start_time = 0;         // 动画开始时间（ms）
+  int total_scroll = 0;         // 总需要滚动的量
+  int sent_scroll = 0;          // 已发送的滚动量
+  DWORD duration = 300;         // 动画持续时间（ms，可根据需求调整）
+};
+ScrollAnimation scroll_anim;      // 全局动画状态
+
 float ratio = 0.0f;
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    // 新增：声明静态变量存储惯性滚动参数
-    static int pending_inertia_scroll = 0;
-    static POINT pending_inertia_pt = {0, 0};
-    static DWORD pending_inertia_time = 0;
   if (nCode != HC_ACTION) {
     return CallNextHookEx(mouse_hook, nCode, wParam, lParam);
-  }
-  // 处理延迟的惯性滚动（16ms后执行）
-  if (pending_inertia_scroll != 0) {
-    DWORD current_tick = GetTickCount();
-    if (current_tick - pending_inertia_time >= 16) {
-      HWND hwnd = WindowFromPoint(pending_inertia_pt);
-      // 修正SendMessage参数（补充完整wParam和lParam）
-      SendMessage(hwnd, WM_MOUSEWHEEL,
-                  MAKEWPARAM(0, pending_inertia_scroll),  // 正确构造wParam
-                  MAKELPARAM(pending_inertia_pt.x, pending_inertia_pt.y));  // 正确构造lParam
-      pending_inertia_scroll = 0;  // 重置标记
-    }
   }
 
   do {
@@ -278,6 +272,37 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
       remainder = 0;
       break;       // 左键拖动时跳过自定义滚动
     }
+
+    // 新增：处理滚动动画更新
+    if (scroll_anim.active) {
+      DWORD current_time = GetTickCount();
+      DWORD elapsed = current_time - scroll_anim.start_time;
+      HWND hwnd = WindowFromPoint(pmouse->pt);  // 使用当前鼠标位置的窗口
+
+      if (elapsed >= scroll_anim.duration) {
+          // 动画结束，发送剩余量
+          int remaining = scroll_anim.total_scroll - scroll_anim.sent_scroll;
+          if (remaining != 0) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                         MAKEWPARAM(0, remaining), 
+                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              scroll_anim.sent_scroll += remaining;
+          }
+          scroll_anim.active = false;  // 重置动画状态
+      } else {
+          // 线性插值计算当前应发送的滚动量
+          float progress = (float)elapsed / scroll_anim.duration;
+          int target_sent = (int)(scroll_anim.total_scroll * progress);
+          int delta = target_sent - scroll_anim.sent_scroll;
+          
+          if (delta != 0) {
+              SendMessage(hwnd, WM_MOUSEWHEEL, 
+                         MAKEWPARAM(0, delta), 
+                         MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
+              scroll_anim.sent_scroll = target_sent;
+          }
+      }
+  }
 
     // 新增边缘滚动检测
     if (wParam == WM_MOUSEMOVE && !IsPressed(VK_LBUTTON)) {
@@ -338,17 +363,15 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
         if (actualScroll != 0) {
           int scrollAmount = actualScroll * custom_wheel_delta; // 使用动态变量
-          SendMessage(hwnd, WM_MOUSEWHEEL, 
-                      MAKEWPARAM(0, scrollAmount),
-                      MAKELPARAM(pmouse->pt.x, pmouse->pt.y));
-                      // 新增：计算0.2倍总滚动量的惯性滚动（取整）
-      int inertia_scroll = static_cast<int>(scrollAmount * 0.2f);
-      if (inertia_scroll != 0) {
-        pending_inertia_scroll = inertia_scroll;
-        pending_inertia_pt = pmouse->pt;  // 保存当前鼠标位置
-        pending_inertia_time = GetTickCount();  // 记录当前时间戳
-          }
+          // 启动/更新滚动动画
+          if (!scroll_anim.active) {
+            scroll_anim.active = true;
+            scroll_anim.start_time = GetTickCount();
+            scroll_anim.total_scroll = 0;
+            scroll_anim.sent_scroll = 0;
         }
+        scroll_anim.total_scroll += scrollAmount;  // 累加新的滚动量
+    }
         
         lastY = client_pt.y;
 
